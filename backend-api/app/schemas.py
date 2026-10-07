@@ -91,9 +91,15 @@ class RestaurantUpdate(BaseModel):
 
 
 # --- AGGREGATED MENU SCHEMAS ---
-class CategoryWithProducts(Category):
-    products: List[Product] = []
+class ModifierGroupWithWithOptions(ModifierGroup):
+    options: List[ModifierOption] = []  # Lista de opciones dentro del grupo (ej: Queso, Tocino)
 
+class ProductWithModifiers(Product):
+    modifier_groups: List[ModifierGroupWithWithOptions] = []  # Lista de grupos pegados al producto
+
+class CategoryWithProducts(Category):
+    # Cambiamos List[Product] por List[ProductWithModifiers]
+    products: List[ProductWithModifiers] = [] 
 
 class FullMenuResponse(BaseModel):
     restaurant: Restaurant
@@ -101,12 +107,19 @@ class FullMenuResponse(BaseModel):
 
 
 # --- ORDER / WHATSAPP CHECKOUT SCHEMAS ---
+class SelectedModifierSchema(BaseModel):
+    modifier_option_id: UUID
+    name: str = Field(..., example="Queso Extra")
+    price_extra: float = Field(..., example=15.00)
+
 class OrderItemSchema(BaseModel):
     product_id: UUID
     product_name: str
-    price: float
+    price: float  # Precio base del producto
     quantity: int = Field(..., gt=0)
     notes: Optional[str] = None
+    # Nueva lista con las opciones exactas elegidas por el cliente
+    selected_modifiers: List[SelectedModifierSchema] = [] 
 
 
 class OrderCheckoutRequest(BaseModel):
@@ -139,3 +152,36 @@ class TokenResponse(BaseModel):
     user_email: str
     restaurant_slug: Optional[str] = "tacos-el-pastor"
 
+
+# --- MODIFIER SCHEMAS ---
+class ModifierOptionBase(BaseModel):
+    name: str = Field(..., max_length=100, example="Queso Extra")
+    price_extra: float = Field(default=0.00, ge=0, example=15.00)
+    is_available: bool = True
+    sort_order: int = 0
+
+class ModifierOptionCreate(ModifierOptionBase):
+    modifier_group_id: UUID
+
+class ModifierOption(ModifierOptionBase):
+    id: UUID
+    modifier_group_id: UUID
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ModifierGroupBase(BaseModel):
+    name: str = Field(..., max_length=100, example="Elige tus extras")
+    is_required: bool = False
+    min_selection: int = 0
+    max_selection: int = 1
+    sort_order: int = 0
+
+class ModifierGroupCreate(ModifierGroupBase):
+    product_id: UUID
+
+class ModifierGroup(ModifierGroupBase):
+    id: UUID
+    product_id: UUID
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)

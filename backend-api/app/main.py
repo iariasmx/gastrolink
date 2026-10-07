@@ -60,12 +60,12 @@ def list_restaurants():
 @app.get("/api/restaurants/by-slug/{slug}", response_model=schemas.FullMenuResponse, tags=["Menu Público"])
 def get_menu_by_slug(slug: str, include_all: bool = Query(True, description="Incluir productos no disponibles")):
     """
-    Obtiene el restaurante y su menú completo (categorías y productos) por su slug único.
+    Obtiene el restaurante y su menú completo enriquecido con grupos de modificadores y opciones.
     """
     try:
         # 1. Buscar el restaurante
         rest_res = supabase.table("restaurants").select("*").eq("slug", slug).eq("is_active", True).execute()
-        if not rest_res.data or len(rest_res.data) == 0:
+        if not rest_res.data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Restaurante con slug '{slug}' no encontrado o inactivo."
@@ -84,17 +84,48 @@ def get_menu_by_slug(slug: str, include_all: bool = Query(True, description="Inc
         categories_data = cat_res.data or []
         category_ids = [c["id"] for c in categories_data]
 
-        # 3. Buscar productos del restaurante
+        # 3. Buscar productos, sus grupos de modificadores y opciones
+        products_data = []
         if category_ids:
-            query = supabase.table("products").select("*").in_("category_id", category_ids)
+            p_query = supabase.table("products").select("*").in_("category_id", category_ids)
             if not include_all:
-                query = query.eq("is_available", True)
-            prod_res = query.execute()
+                p_query = p_query.eq("is_available", True)
+            prod_res = p_query.execute()
             products_data = prod_res.data or []
+
+        if products_data:
+            product_ids = [p["id"] for p in products_data]
+            
+            # Buscar grupos de modificadores para estos productos
+            groups_res = supabase.table("modifier_groups")\
+                .select("*")\
+                .in_("product_id", product_ids)\
+                .order("sort_order", desc=False)\
+                .execute()
+            groups_data = groups_res.data or []
+            
+            # Buscar opciones de modificadores para estos grupos
+            options_data = []
+            if groups_data:
+                group_ids = [g["id"] for g in groups_data]
+                opt_query = supabase.table("modifier_options").select("*").in_("modifier_group_id", group_ids)
+                if not include_all:
+                    opt_query = opt_query.eq("is_available", True)
+                opt_res = opt_query.order("sort_order", desc=False).execute()
+                options_data = opt_res.data or []
+
+            # --- ANIDACIÓN MANUAL ---
+            # Pegar opciones dentro de sus grupos correspondientes
+            for group in groups_data:
+                group["options"] = [o for o in options_data if str(o["modifier_group_id"]) == str(group["id"])]
+            
+            # Pegar grupos de modificadores dentro de sus productos correspondientes
+            for prod in products_data:
+                prod["modifier_groups"] = [g for g in groups_data if str(g["product_id"]) == str(prod["id"])]
         else:
             products_data = []
 
-        # Mapear productos por categoría
+        # Mapear productos estructurados por categoría
         categories_with_products = []
         for cat in categories_data:
             cat_id = cat["id"]
@@ -119,11 +150,10 @@ def get_menu_by_slug(slug: str, include_all: bool = Query(True, description="Inc
 
 
 # --- ORDERS / WHATSAPP CHECKOUT HELPER ---
-
 @app.post("/api/checkout/whatsapp-url", response_model=schemas.WhatsAppLinkResponse, tags=["Checkout"])
 def generate_whatsapp_order_link(order: schemas.OrderCheckoutRequest):
     """
-    Genera el enlace de WhatsApp estructurado listo para redirigir al comensal.
+    Genera el enlace de WhatsApp estructurado calculando los extras de los modificadores elegidos.
     """
     try:
         rest_res = supabase.table("restaurants").select("*").eq("slug", order.restaurant_slug).execute()
@@ -133,7 +163,6 @@ def generate_whatsapp_order_link(order: schemas.OrderCheckoutRequest):
         restaurant = rest_res.data[0]
         phone = restaurant.get("whatsapp_number", "").replace("+", "").replace(" ", "").replace("-", "")
 
-        # Formatear el mensaje de texto para WhatsApp
         msg_lines = [
             f"🛒 *NUEVO PEDIDO - {restaurant.get('name', 'GastroLink')}*",
             "----------------------------------",
@@ -155,12 +184,25 @@ def generate_whatsapp_order_link(order: schemas.OrderCheckoutRequest):
 
         subtotal = 0.0
         for idx, item in enumerate(order.items, start=1):
-            item_total = item.price * item.quantity
+            # 1. Calcular costos extras de los modificadores de este platillo
+            modifiers_cost = sum(float(mod.price_extra) for mod in item.selected_modifiers)
+            item_unit_price = float(item.price) + modifiers_cost
+            item_total = item_unit_price * item.quantity
             subtotal += item_total
+            
+            # Línea principal del producto
             line = f"{idx}. {item.quantity}x {item.product_name} - ${item_total:.2f}"
-            if item.notes:
-                line += f"  _(Nota: {item.notes})_"
             msg_lines.append(line)
+            
+            # Indentar visualmente los modificadores seleccionados debajo del platillo
+            for mod in item.selected_modifiers:
+                mod_line = f"    └─ _{mod.name}_"
+                if float(mod.price_extra) > 0:
+                    mod_line += f" (+${float(mod.price_extra):.2f})"
+                msg_lines.append(mod_line)
+                
+            if item.notes:
+                msg_lines.append(f"    📝 _Nota: {item.notes}_")
 
         delivery_fee = float(restaurant.get("delivery_fee", 0.00)) if order.service_type.lower() == "delivery" else 0.0
         grand_total = subtotal + delivery_fee
@@ -170,6 +212,10 @@ def generate_whatsapp_order_link(order: schemas.OrderCheckoutRequest):
         if delivery_fee > 0:
             msg_lines.append(f"🛵 *Costo Envío:* ${delivery_fee:.2f}")
         msg_lines.append(f"💰 *TOTAL A PAGAR:* ${grand_total:.2f}")
+        
+        if order.payment_method.lower() == "transferencia":
+            msg_lines.append("\n⚠️ _Por favor adjunta el comprobante de tu transferencia a este chat._")
+            
         msg_lines.append("\n¡Gracias por tu compra!")
 
         full_message = "\n".join(msg_lines)
@@ -189,6 +235,7 @@ def generate_whatsapp_order_link(order: schemas.OrderCheckoutRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al generar enlace de WhatsApp: {str(e)}"
         )
+
 
 
 # --- AUTHENTICATION ENDPOINTS ---
