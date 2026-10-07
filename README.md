@@ -16,7 +16,7 @@ El proyecto está construido bajo un enfoque de costo operativo de infraestructu
 ## 📁 Estructura del Repositorio
 
 ```text
-menuqr-saas/
+GastroLink/
 ├── backend-api/         # Microservicio de APIs (Python + FastAPI)
 │   ├── app/
 │   │   ├── __init__.py
@@ -134,12 +134,20 @@ El carrito de compras calcula cantidades, subtotales y adiciones condicionales (
 ### Canalización de Pedidos por WhatsApp (Costo de API \$0)
 El cierre de la venta y la logística de entrega se delegan por completo al operador del restaurante. El sistema concatena el carrito de compras junto con los detalles de entrega recopilados dinámicamente en el formulario de Checkout (Dirección, referencias de domicilio y método de pago) y redirige al comensal mediante la API abierta de WhatsApp Web/App utilizando codificación de caracteres estándar (`encodeURIComponent`), garantizando el envío seguro de la orden sin costos por mensaje de broker de mensajería externa.
 
+### 🎨 Psicología del Color & Diseño de Alta Conversión Gastronómica
+La interfaz del menú público para comensales fue diseñada aplicando principios de la psicología del color orientados a la industria gastronómica:
+
+* **Rojo Carmesí & Coral (`#e11d48` / `#f43f5e`):** Estimula el sistema nervioso simpático, desencadenando el apetito y aumentando el impulso de compra. Aplicado en los botones principales de llamada a la acción (*CTA*) **"+ Añadir al Pedido"**, pestañas de categorías activas y notificaciones flotantes del carrito.
+* **Ámbar Dorado Tostado (`#f59e0b` / `#b45309`):** Evoca sensaciones visuales de horneado, parrilla artesanal y calidad de ingredientes. Se utiliza en las etiquetas de precios y badges destacados.
+* **Fondo Marmolado Cálido (`#fafaf9`):** Reemplaza la frialdad estéril del blanco puro por una tonalidad crema higiénica pero acogedora, optimizando el contraste de las fotografías de los platillos.
+
 ---
 
-## 🗺️ Roadmap de Desarrollo Técnico (Tiempo Libre)
+## 🗺️ Roadmap de Desarrollo Técnico
 - [x] Configuración del esquema relacional en PostgreSQL (Supabase).
 - [x] Estructuración del Backend Base en FastAPI.
 - [x] Arquitectura reactiva del servicio del carrito de compras en Angular mediante Signals.
-- [ ] Implementación de consultas relacionales (*Joins*) optimizadas en FastAPI para la extracción de menús completos.
-- [ ] Configuración de la estrategia de enrutamiento dinámico en Angular para atrapar URLs vía código QR (`/menu/:slug`).
-- [ ] Módulo administrativo de autenticación (JWT) y CRUD visual para restaurantes de lado del cliente.
+- [x] Implementación de consultas relacionales (*Joins*) optimizadas en FastAPI para la extracción de menús completos.
+- [x] Configuración de la estrategia de enrutamiento dinámico en Angular para atrapar URLs vía código QR (`/menu/:slug`).
+- [x] Generador dinámico de Código QR descargable/imprimible para mesas y mostradores.
+- [x] Módulo administrativo (`/admin`) con panel CRUD visual para restaurantes y gestión de productos.
