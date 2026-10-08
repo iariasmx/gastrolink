@@ -1,8 +1,11 @@
-import { Component, OnInit, inject, signal, effect } from '@angular/core';
+import { Component, OnInit, DestroyRef, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MenuService } from '../../services/menu.service';
-import { Restaurant, CategoryWithProducts, Product } from '../../models/restaurant.model';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Observable, Subject, combineLatest, finalize, takeUntil } from 'rxjs';
+import { Restaurant, CategoryWithProducts, Product, ModifierGroup } from '../../models/restaurant.model';
+import { ModifierEditorComponent } from '../modifier-editor/modifier-editor.component';
 
 import { AuthService } from '../../services/auth.service';
 import { AdminService } from '../../services/admin.service';
@@ -10,7 +13,7 @@ import { AdminService } from '../../services/admin.service';
 @Component({
   selector: 'app-admin',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink, ModifierEditorComponent],
   template: `
     <div class="admin-layout">
       <!-- Admin Sidebar -->
@@ -24,19 +27,20 @@ import { AdminService } from '../../services/admin.service';
         </div>
 
         <nav class="sidebar-menu">
+          <a routerLink="/admin/businesses" class="preview-btn">? Cambiar negocio</a>
           <button 
             [class.active]="activeTab() === 'overview'" 
-            (click)="activeTab.set('overview')">
+            (click)="openTab('overview')">
             📊 Resumen & Código QR
           </button>
           <button 
             [class.active]="activeTab() === 'menu'" 
-            (click)="activeTab.set('menu')">
+            (click)="openTab('menu')">
             🍽️ Gestión de Menú (CRUD)
           </button>
           <button 
             [class.active]="activeTab() === 'settings'" 
-            (click)="activeTab.set('settings')">
+            (click)="openTab('settings')">
             ⚙️ Configuración del Negocio
           </button>
         </nav>
@@ -46,7 +50,7 @@ import { AdminService } from '../../services/admin.service';
             <span class="user-icon">👤</span>
             <span class="user-email">{{ authService.currentUserEmail() }}</span>
           </div>
-          <a [href]="'/menu/' + (restaurant()?.slug || 'tacos-el-pastor')" target="_blank" class="preview-btn">
+          <a *ngIf="restaurant()" [routerLink]="['/menu', restaurant()!.slug]" target="_blank" class="preview-btn">
             🔗 Ver Menú Público ↗
           </a>
           <button class="logout-btn" (click)="authService.logout()">
@@ -57,6 +61,11 @@ import { AdminService } from '../../services/admin.service';
 
       <!-- Admin Main Content -->
       <main class="admin-main">
+        <p *ngIf="loading()" role="status">Cargando negocio?</p>
+        <div *ngIf="loadError()" role="alert"><p>{{ loadError() }}</p><button (click)="loadBusiness()">Reintentar</button></div>
+        <p *ngIf="actionError()" role="alert">{{ actionError() }}</p>
+        <p *ngIf="actionMessage()" role="status">{{ actionMessage() }}</p>
+        <ng-container *ngIf="restaurant() && !loading() && !loadError()">
         <!-- Header Bar -->
         <header class="admin-header">
           <div>
@@ -158,6 +167,8 @@ import { AdminService } from '../../services/admin.service';
                   </div>
 
                   <div class="crud-item-actions">
+                    <button class="btn btn-secondary" [disabled]="prod.id.startsWith('prod-')"
+                      (click)="modifiersProduct = prod">Modificadores</button>
                     <button 
                       class="toggle-status-btn"
                       [class.available]="prod.is_available"
@@ -185,7 +196,7 @@ import { AdminService } from '../../services/admin.service';
 
               <div class="form-group">
                 <label>Slug Único (URL del Menú)</label>
-                <input type="text" [(ngModel)]="editSlug" name="slug" required />
+                <input type="text" [(ngModel)]="editSlug" name="slug" required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="100" />
               </div>
 
               <div class="form-group">
@@ -203,7 +214,12 @@ import { AdminService } from '../../services/admin.service';
                 <input type="number" [(ngModel)]="editDeliveryFee" name="deliveryFee" step="5" />
               </div>
 
+              <div class="form-group">
+                <label>Pedido m?nimo ($ MXN)</label>
+                <input type="number" [(ngModel)]="editMinimumOrder" name="minimumOrder" min="0" step="0.01" required />
+              </div>
               <div class="form-checkboxes">
+                <label><input type="checkbox" [(ngModel)]="editIsActive" name="isActive" /> Negocio activo</label>
                 <label>
                   <input type="checkbox" [(ngModel)]="editAllowsTable" name="allowsTable" />
                   Permitir Pedidos en Mesa
@@ -218,13 +234,17 @@ import { AdminService } from '../../services/admin.service';
                 </label>
               </div>
 
-              <button type="submit" class="btn btn-primary">
+              <button [disabled]="actionBusy()" type="submit" class="btn btn-primary">
                 💾 Guardar Cambios
               </button>
             </form>
           </div>
         </section>
+        </ng-container>
       </main>
+
+      <app-modifier-editor *ngIf="modifiersProduct" [businessId]="businessId()" [product]="modifiersProduct"
+        (close)="modifiersProduct = null" (saved)="updateProductModifiers($event)"></app-modifier-editor>
 
       <!-- Modal para Agregar Platillo -->
       <div *ngIf="showAddModal" class="modal-overlay" (click)="showAddModal = false">
@@ -255,7 +275,7 @@ import { AdminService } from '../../services/admin.service';
 
           <div class="modal-actions">
             <button class="btn btn-secondary" (click)="showAddModal = false">Cancelar</button>
-            <button class="btn btn-success" (click)="saveNewProduct()">Guardar Platillo</button>
+            <button class="btn btn-success" [disabled]="actionBusy()" (click)="saveNewProduct()">Guardar Platillo</button>
           </div>
         </div>
       </div>
@@ -289,7 +309,7 @@ import { AdminService } from '../../services/admin.service';
 
           <div class="modal-actions">
             <button class="btn btn-secondary" (click)="showEditModal = false">Cancelar</button>
-            <button class="btn btn-primary" (click)="saveEditedProduct()">💾 Guardar Cambios</button>
+            <button class="btn btn-primary" [disabled]="actionBusy()" (click)="saveEditedProduct()">💾 Guardar Cambios</button>
           </div>
         </div>
       </div>
@@ -675,7 +695,16 @@ import { AdminService } from '../../services/admin.service';
   `]
 })
 export class AdminComponent implements OnInit {
-  menuService = inject(MenuService);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
+  private destroyRef = inject(DestroyRef);
+  private contextChanged = new Subject<void>();
+  businessId = signal('');
+  loading = signal(false);
+  loadError = signal('');
+  actionError = signal('');
+  actionMessage = signal('');
+  actionBusy = signal(false);
   authService = inject(AuthService);
   adminService = inject(AdminService);
 
@@ -683,6 +712,16 @@ export class AdminComponent implements OnInit {
 
   restaurant = signal<Restaurant | null>(null);
   categories = signal<CategoryWithProducts[]>([]);
+  modifiersProduct: Product | null = null;
+
+  updateProductModifiers(groups: ModifierGroup[]): void {
+    const productId = this.modifiersProduct?.id;
+    this.categories.update(categories => categories.map(category => ({
+      ...category,
+      products: category.products.map(product => product.id === productId
+        ? { ...product, modifier_groups: groups } : product),
+    })));
+  }
 
   // Settings form binding
   editName = '';
@@ -690,6 +729,8 @@ export class AdminComponent implements OnInit {
   editWhatsapp = '';
   editLogo = '';
   editDeliveryFee = 0;
+  editMinimumOrder = 0;
+  editIsActive = true;
   editAllowsTable = true;
   editAllowsTakeaway = true;
   editAllowsDelivery = true;
@@ -711,19 +752,50 @@ export class AdminComponent implements OnInit {
   editProductDescription = '';
   editProductImageUrl = '';
 
-  constructor() {
-    effect(() => {
-      const data = this.menuService.menuData();
-      if (data) {
-        this.restaurant.set(data.restaurant);
-        this.categories.set(data.categories);
-        this.populateSettings(data.restaurant);
-      }
+  ngOnInit(): void {
+    combineLatest([this.route.paramMap, this.route.data]).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(([params, data]) => {
+      this.businessId.set(params.get('businessId') ?? '');
+      this.activeTab.set(data['tab'] ?? 'overview');
+      this.authService.selectBusiness(this.businessId());
+      this.loadBusiness();
     });
   }
 
-  ngOnInit(): void {
-    this.menuService.loadMenuBySlug('tacos-el-pastor');
+  openTab(tab: 'overview' | 'menu' | 'settings'): void {
+    const path = ['/admin/businesses', this.businessId()];
+    if (tab !== 'overview') path.push(tab);
+    void this.router.navigate(path);
+  }
+
+  loadBusiness(): void {
+    this.contextChanged.next();
+    this.restaurant.set(null);
+    this.categories.set([]);
+    this.modifiersProduct = null;
+    this.showAddModal = this.showEditModal = false;
+    this.actionError.set(''); this.actionMessage.set(''); this.loadError.set('');
+    if (!this.businessId()) return;
+    this.loading.set(true);
+    this.adminService.getBusinessMenu(this.businessId()).pipe(
+      takeUntil(this.contextChanged), takeUntilDestroyed(this.destroyRef), finalize(() => this.loading.set(false)),
+    ).subscribe({
+      next: data => {
+        if (data.restaurant.id !== this.businessId()) { this.loadError.set('La respuesta no corresponde al negocio seleccionado.'); return; }
+        this.restaurant.set(data.restaurant);
+        this.categories.set(data.categories);
+        this.populateSettings(data.restaurant);
+      },
+      error: error => this.loadError.set(error.status === 403 ? 'No tienes permiso para administrar este negocio.' : 'No se pudo cargar el negocio. Intenta de nuevo.'),
+    });
+  }
+
+  private save<T>(request: Observable<T>, apply: (value: T) => void): void {
+    if (this.actionBusy() || !this.restaurant()) return;
+    this.actionBusy.set(true); this.actionError.set(''); this.actionMessage.set('');
+    request.pipe(takeUntil(this.contextChanged), takeUntilDestroyed(this.destroyRef), finalize(() => this.actionBusy.set(false))).subscribe({
+      next: value => { apply(value); this.actionMessage.set('Cambios guardados.'); },
+      error: () => this.actionError.set('No se pudieron guardar los cambios. Revisa los datos e intenta de nuevo.'),
+    });
   }
 
   populateSettings(r: Restaurant): void {
@@ -732,14 +804,16 @@ export class AdminComponent implements OnInit {
     this.editWhatsapp = r.whatsapp_number;
     this.editLogo = r.logo_url || '';
     this.editDeliveryFee = r.delivery_fee || 0;
+    this.editMinimumOrder = r.minimum_order;
+    this.editIsActive = r.is_active;
     this.editAllowsTable = r.allows_table_order;
     this.editAllowsTakeaway = r.allows_takeaway;
     this.editAllowsDelivery = r.allows_delivery;
   }
 
   getMenuFullUrl(): string {
-    const slug = this.restaurant()?.slug || 'tacos-el-pastor';
-    return `${window.location.origin}/menu/${slug}`;
+    const slug = this.restaurant()?.slug;
+    return slug ? `${window.location.origin}/menu/${encodeURIComponent(slug)}` : '';
   }
 
   getQrUrl(): string {
@@ -764,28 +838,25 @@ export class AdminComponent implements OnInit {
   }
 
   toggleAvailability(product: Product): void {
-    const newStatus = !product.is_available;
-    product.is_available = newStatus;
-
-    this.adminService.updateProduct(product.id, { is_available: newStatus }).subscribe({
-      next: () => console.log('Estado de producto actualizado en Supabase'),
-      error: err => console.warn('Front actualizó localmente (API offline/fallback)', err)
+    this.save(this.adminService.updateProduct(this.businessId(), product.id, { is_available: !product.is_available }), updated => {
+      this.replaceProduct(updated);
     });
   }
 
+  private replaceProduct(updated: Product): void {
+    this.categories.update(categories => categories.map(category => ({
+      ...category,
+      products: [
+        ...category.products.filter(product => product.id !== updated.id),
+        ...(category.id === updated.category_id ? [{ ...category.products.find(p => p.id === updated.id), ...updated }] : []),
+      ],
+    })));
+  }
+
   deleteProduct(productId: string): void {
-    if (!confirm('¿Estás seguro de que deseas eliminar este platillo?')) return;
-
-    this.categories.update(cats => 
-      cats.map(cat => ({
-        ...cat,
-        products: cat.products.filter(p => p.id !== productId)
-      }))
-    );
-
-    this.adminService.deleteProduct(productId).subscribe({
-      next: () => console.log('Producto eliminado de Supabase'),
-      error: err => console.warn('Producto eliminado localmente', err)
+    if (this.actionBusy() || !confirm('?Est?s seguro de que deseas eliminar este platillo?')) return;
+    this.save(this.adminService.deleteProduct(this.businessId(), productId), () => {
+      this.categories.update(categories => categories.map(category => ({ ...category, products: category.products.filter(p => p.id !== productId) })));
     });
   }
 
@@ -797,42 +868,16 @@ export class AdminComponent implements OnInit {
   }
 
   saveNewProduct(): void {
-    if (!this.newProductName || this.newProductPrice <= 0) return;
-
-    const newProdPayload = {
-      category_id: this.newProductCategoryId,
-      name: this.newProductName,
-      price: this.newProductPrice,
-      description: this.newProductDescription,
-      image_url: this.newProductImageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=400&q=80',
-      is_available: true
+    if (!this.newProductName.trim() || !Number.isFinite(this.newProductPrice) || this.newProductPrice <= 0 || !this.categories().some(c => c.id === this.newProductCategoryId)) return;
+    const payload = {
+      category_id: this.newProductCategoryId, name: this.newProductName.trim(), price: this.newProductPrice,
+      description: this.newProductDescription, image_url: this.newProductImageUrl || null, is_available: true,
     };
-
-    const tempProd: Product = {
-      ...newProdPayload,
-      id: 'prod-' + Date.now(),
-      created_at: new Date().toISOString()
-    };
-
-    this.categories.update(cats =>
-      cats.map(cat => {
-        if (cat.id === this.newProductCategoryId) {
-          return { ...cat, products: [...cat.products, tempProd] };
-        }
-        return cat;
-      })
-    );
-
-    this.adminService.createProduct(newProdPayload).subscribe({
-      next: created => console.log('Producto guardado exitosamente en Supabase:', created),
-      error: err => console.warn('Guardado local', err)
+    this.save(this.adminService.createProduct(this.businessId(), { ...payload, image_url: payload.image_url ?? undefined }), created => {
+      this.categories.update(categories => categories.map(category => category.id === created.category_id ? { ...category, products: [...category.products, created] } : category));
+      this.newProductName = ''; this.newProductPrice = 0; this.newProductDescription = ''; this.newProductImageUrl = '';
+      this.showAddModal = false;
     });
-
-    this.newProductName = '';
-    this.newProductPrice = 0;
-    this.newProductDescription = '';
-    this.newProductImageUrl = '';
-    this.showAddModal = false;
   }
 
   // --- EDIT PRODUCT METHODS ---
@@ -847,56 +892,28 @@ export class AdminComponent implements OnInit {
   }
 
   saveEditedProduct(): void {
-    if (!this.editingProductId || !this.editProductName || this.editProductPrice <= 0) return;
-
+    if (!this.editingProductId || !this.editProductName.trim() || !Number.isFinite(this.editProductPrice) || this.editProductPrice <= 0) return;
     const updates: Partial<Product> = {
-      category_id: this.editProductCategoryId,
-      name: this.editProductName,
-      price: this.editProductPrice,
-      description: this.editProductDescription,
-      image_url: this.editProductImageUrl
+      category_id: this.editProductCategoryId, name: this.editProductName.trim(), price: this.editProductPrice,
+      description: this.editProductDescription, image_url: this.editProductImageUrl,
     };
-
-    // Actualización reactiva instantánea en la interfaz
-    this.categories.update(cats =>
-      cats.map(cat => ({
-        ...cat,
-        products: cat.products.map(prod => {
-          if (prod.id === this.editingProductId) {
-            return { ...prod, ...updates };
-          }
-          return prod;
-        })
-      }))
-    );
-
-    // Persistir cambios en Supabase vía FastAPI
-    this.adminService.updateProduct(this.editingProductId, updates).subscribe({
-      next: updated => console.log('Producto actualizado en Supabase:', updated),
-      error: err => console.warn('Producto actualizado localmente', err)
+    this.save(this.adminService.updateProduct(this.businessId(), this.editingProductId, updates), updated => {
+      this.replaceProduct(updated);
+      this.showEditModal = false;
     });
-
-    this.showEditModal = false;
   }
 
   saveSettings(): void {
-    if (!this.restaurant()) return;
-    const updated: Restaurant = {
-      ...this.restaurant()!,
-      name: this.editName,
-      slug: this.editSlug,
-      whatsapp_number: this.editWhatsapp,
-      logo_url: this.editLogo,
-      delivery_fee: this.editDeliveryFee,
-      allows_table_order: this.editAllowsTable,
-      allows_takeaway: this.editAllowsTakeaway,
-      allows_delivery: this.editAllowsDelivery
+    const payload = {
+      name: this.editName.trim(), slug: this.editSlug.trim(), whatsapp_number: this.editWhatsapp.trim(), logo_url: this.editLogo,
+      delivery_fee: this.editDeliveryFee, minimum_order: this.editMinimumOrder, is_active: this.editIsActive,
+      allows_table_order: this.editAllowsTable, allows_takeaway: this.editAllowsTakeaway, allows_delivery: this.editAllowsDelivery,
     };
-    this.restaurant.set(updated);
-
-    this.adminService.updateRestaurant(updated.id, updated).subscribe({
-      next: () => alert('Configuración guardada correctamente en la base de datos.'),
-      error: () => alert('Configuración guardada localmente.')
+    if (!payload.name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(payload.slug) || !payload.whatsapp_number || !Number.isFinite(payload.delivery_fee) || payload.delivery_fee < 0 || !Number.isFinite(payload.minimum_order) || payload.minimum_order < 0) {
+      this.actionError.set('Revisa nombre, slug, WhatsApp y los importes antes de guardar.'); return;
+    }
+    this.save(this.adminService.updateBusinessSettings(this.businessId(), payload), updated => {
+      this.restaurant.set(updated); this.populateSettings(updated);
     });
   }
 

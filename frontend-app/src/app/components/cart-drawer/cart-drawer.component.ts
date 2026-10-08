@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, inject } from '@angular/core';
+import { Component, Input, Output, EventEmitter, inject, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { CartService } from '../../services/cart.service';
@@ -10,7 +10,7 @@ import { ServiceType, CheckoutDetails } from '../../models/cart.model';
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div *ngIf="isOpen" class="drawer-overlay" (click)="close.emit()">
+   <div *ngIf="isOpen" class="drawer-overlay" (click)="close.emit()">
       <div class="drawer-content" (click)="$event.stopPropagation()">
         <!-- Header -->
         <div class="drawer-header">
@@ -30,22 +30,40 @@ import { ServiceType, CheckoutDetails } from '../../models/cart.model';
           <div *ngIf="cartService.items().length === 0" class="empty-cart">
             <span class="empty-icon">🍽️</span>
             <p>Tu carrito está vacío</p>
-
           </div>
 
           <div *ngIf="cartService.items().length > 0" class="items-list">
             <div *ngFor="let item of cartService.items()" class="cart-item">
-              <div class="item-info">
-                <span class="item-name">{{ item.product.name }}</span>
-                <span class="item-price">\${{ item.product.price * item.quantity | number:'1.2-2' }}</span>
+              <div class="item-main-layout">
+                <div class="item-info">
+                  <span class="item-name">{{ item.product.name }}</span>
+                  <!-- CALCULA EL TOTAL DE LA LÍNEA: (Precio base + modificadores) * cantidad -->
+                  <span class="item-price">\${{ ((item.product.price + getModifiersSubtotal(item.selected_modifiers)) * item.quantity) | number:'1.2-2' }}</span>
+                </div>
+
+                <!-- 🟢 LISTADO VISUAL DE MODIFICADORES SELECCIONADOS -->
+                <div *ngIf="item.selected_modifiers && item.selected_modifiers.length > 0" class="modifiers-list">
+                  <div *ngFor="let mod of item.selected_modifiers" class="modifier-item">
+                    └─ {{ mod.name }} 
+                    <span *ngIf="mod.price_extra > 0" class="modifier-price">
+                      (+\${{ mod.price_extra | number:'1.2-2' }})
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Notas especiales -->
+                <div *ngIf="item.notes" class="item-notes">
+                  📝 <span>Nota: {{ item.notes }}</span>
+                </div>
               </div>
+
               <div class="item-controls">
                 <div class="qty-stepper">
-                  <button (click)="cartService.updateQuantity(item.product.id, item.quantity - 1)">-</button>
+                  <button (click)="cartService.updateQuantity(item.product.id, item.selected_modifiers, item.quantity - 1)">-</button>
                   <span>{{ item.quantity }}</span>
-                  <button (click)="cartService.updateQuantity(item.product.id, item.quantity + 1)">+</button>
+                  <button (click)="cartService.updateQuantity(item.product.id, item.selected_modifiers, item.quantity + 1)">+</button>
                 </div>
-                <button class="delete-btn" (click)="cartService.removeItem(item.product.id)" title="Eliminar">🗑️</button>
+                <button class="delete-btn" (click)="cartService.removeItem(item.product.id, item.selected_modifiers)" title="Eliminar">🗑️</button>
               </div>
             </div>
 
@@ -107,7 +125,6 @@ import { ServiceType, CheckoutDetails } from '../../models/cart.model';
                 <select [(ngModel)]="paymentMethod">
                   <option value="Efectivo">Efectivo al recibir / en mesa</option>
                   <option value="Transferencia">Transferencia SPEI</option>
-                  <option value="Tarjeta">Tarjeta de Débito / Crédito</option>
                 </select>
               </div>
             </div>
@@ -440,49 +457,49 @@ import { ServiceType, CheckoutDetails } from '../../models/cart.model';
     }
   `]
 })
-export class CartDrawerComponent {
+export class CartDrawerComponent implements OnChanges {
   @Input() isOpen = false;
   @Input() restaurant: Restaurant | null = null;
   @Output() close = new EventEmitter<void>();
 
   cartService = inject(CartService);
 
-  customerName = '';
-  customerPhone = '';
-  tableNumber = '';
-  deliveryAddress = '';
-  addressReferences = '';
-  paymentMethod = 'Efectivo';
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['restaurant']) {
+      this.cartService.setDeliveryFee(this.restaurant?.delivery_fee ?? 0);
+    }
+  }
+
+  customerName: string = '';
+  customerPhone: string = '';
+  tableNumber: string = '';
+  deliveryAddress: string = '';
+  addressReferences: string = '';
+  paymentMethod: string = 'Efectivo';
+
+  getModifiersSubtotal(modifiers: any[] | undefined): number {
+    if (!modifiers) return 0;
+    return modifiers.reduce((sum, mod) => sum + (mod.price_extra || 0), 0);
+  }
 
   isFormValid(): boolean {
-    if (!this.customerName.trim() || !this.customerPhone.trim()) {
-      return false;
-    }
-    const type = this.cartService.serviceType();
-    if (type === 'table' && !this.tableNumber.trim()) {
-      return false;
-    }
-    if (type === 'delivery' && !this.deliveryAddress.trim()) {
-      return false;
-    }
+    if (!this.customerName || !this.customerPhone) return false;
+    if (this.cartService.serviceType() === 'table' && !this.tableNumber) return false;
+    if (this.cartService.serviceType() === 'delivery' && !this.deliveryAddress) return false;
     return true;
   }
 
   sendOrderViaWhatsApp(): void {
-    if (!this.restaurant || !this.isFormValid()) return;
-
-    if (this.restaurant.delivery_fee && this.cartService.serviceType() === 'delivery') {
-      this.cartService.setDeliveryFee(this.restaurant.delivery_fee);
-    }
+    if (!this.restaurant) return;
 
     const details: CheckoutDetails = {
       serviceType: this.cartService.serviceType(),
       customerName: this.customerName,
       customerPhone: this.customerPhone,
-      tableNumber: this.tableNumber,
-      deliveryAddress: this.deliveryAddress,
-      addressReferences: this.addressReferences,
-      paymentMethod: this.paymentMethod
+      tableNumber: this.tableNumber || undefined,
+      deliveryAddress: this.deliveryAddress || undefined,
+      addressReferences: this.addressReferences || undefined,
+      paymentMethod: this.paymentMethod as any
     };
 
     const url = this.cartService.buildWhatsAppUrl(this.restaurant, details);

@@ -1,0 +1,105 @@
+{
+  "groups": [
+    {
+      "id": "44444444-1111-1111-1111-111111111111",
+      "product_id": "33333333-1111-1111-1111-111111111111",
+      "name": "¿Cómo van tus tacos?",
+      "is_required": true,
+      "min_selection": 1,
+      "max_selection": 1,
+      "sort_order": 1
+    },
+    {
+      "id": "44444444-1111-1111-1111-222222222222",
+      "product_id": "33333333-1111-1111-1111-111111111111",
+      "name": "Ingredientes extra",
+      "is_required": false,
+      "min_selection": 0,
+      "max_selection": 2,
+      "sort_order": 2
+    },
+    {
+      "id": "44444444-2222-2222-2222-111111111111",
+      "product_id": "33333333-2222-2222-2222-222222222222",
+      "name": "Elige tu sabor",
+      "is_required": true,
+      "min_selection": 1,
+      "max_selection": 1,
+      "sort_order": 1
+    }
+  ],
+  "options": [
+    {
+      "id": "55555555-1111-1111-1111-111111111111",
+      "modifier_group_id": "44444444-1111-1111-1111-111111111111",
+      "name": "Con todo (Cilantro y cebolla)",
+      "price_extra": 0,
+      "is_available": true,
+      "sort_order": 1
+    },
+    {
+      "id": "55555555-1111-1111-1111-222222222222",
+      "modifier_group_id": "44444444-1111-1111-1111-111111111111",
+      "name": "Sin cebolla",
+      "price_extra": 0,
+      "is_available": true,
+      "sort_order": 2
+    },
+    {
+      "id": "55555555-1111-1111-1111-333333333333",
+      "modifier_group_id": "44444444-1111-1111-1111-111111111111",
+      "name": "Sin cilantro",
+      "price_extra": 0,
+      "is_available": true,
+      "sort_order": 3
+    },
+    {
+      "id": "55555555-1111-1111-1111-444444444444",
+      "modifier_group_id": "44444444-1111-1111-1111-111111111111",
+      "name": "Solo carne",
+      "price_extra": 0,
+      "is_available": true,
+      "sort_order": 4
+    },
+    {
+      "id": "55555555-2222-2222-2222-111111111111",
+      "modifier_group_id": "44444444-1111-1111-1111-222222222222",
+      "name": "Queso fundido extra",
+      "price_extra": 12,
+      "is_available": true,
+      "sort_order": 1
+    },
+    {
+      "id": "55555555-2222-2222-2222-222222222222",
+      "modifier_group_id": "44444444-1111-1111-1111-222222222222",
+      "name": "Aguacate",
+      "price_extra": 15,
+      "is_available": true,
+      "sort_order": 2
+    },
+    {
+      "id": "55555555-3333-3333-3333-111111111111",
+      "modifier_group_id": "44444444-2222-2222-2222-111111111111",
+      "name": "Coca-Cola Regular",
+      "price_extra": 0,
+      "is_available": true,
+      "sort_order": 1
+    },
+    {
+      "id": "55555555-3333-3333-3333-222222222222",
+      "modifier_group_id": "44444444-2222-2222-2222-111111111111",
+      "name": "Sidral Mundet",
+      "price_extra": 0,
+      "is_available": true,
+      "sort_order": 2
+    },
+    {
+      "id": "55555555-3333-3333-3333-333333333333",
+      "modifier_group_id": "44444444-2222-2222-2222-111111111111",
+      "name": "Boing de Mango",
+      "price_extra": 0,
+      "is_available": true,
+      "sort_order": 3
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, ActivatedRoute } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
 
 @Component({
@@ -17,15 +17,6 @@ import { AuthService } from '../../services/auth.service';
           <p class="subtitle">Acceso Administrativo para Restaurantes</p>
         </div>
 
-        <!-- Demo credentials banner -->
-        <div class="demo-banner">
-          <span class="demo-icon">🔑</span>
-          <div>
-            <strong>Credenciales Demo:</strong>
-            <code>admin&#64;gastrolink.mx</code> / <code>admin123</code>
-          </div>
-        </div>
-
         <form (ngSubmit)="onLogin()" class="login-form">
           <div *ngIf="errorMessage" class="error-banner">
             ⚠️ {{ errorMessage }}
@@ -36,7 +27,8 @@ import { AuthService } from '../../services/auth.service';
             <input 
               type="email" 
               [(ngModel)]="email" 
-              name="email" 
+              name="email"
+              autocomplete="username" 
               placeholder="restaurante@ejemplo.com" 
               required 
             />
@@ -47,7 +39,8 @@ import { AuthService } from '../../services/auth.service';
             <input 
               type="password" 
               [(ngModel)]="password" 
-              name="password" 
+              name="password"
+              autocomplete="current-password" 
               placeholder="••••••••" 
               required 
             />
@@ -216,9 +209,10 @@ import { AuthService } from '../../services/auth.service';
 export class LoginComponent {
   authService = inject(AuthService);
   router = inject(Router);
+  route = inject(ActivatedRoute);
 
-  email = 'admin@gastrolink.mx';
-  password = 'admin123';
+  email = '';
+  password = '';
   loading = false;
   errorMessage = '';
 
@@ -234,7 +228,8 @@ export class LoginComponent {
     this.authService.login(this.email, this.password).subscribe(success => {
       this.loading = false;
       if (success) {
-        this.router.navigate(['/admin']);
+        const target = this.route.snapshot.queryParamMap.get('returnUrl');
+        void this.router.navigateByUrl(target && /^\/admin(?:\/|$)/.test(target) ? target : '/admin');
       } else {
         this.errorMessage = 'Credenciales inválidas. Por favor verifica tu correo y contraseña.';
       }

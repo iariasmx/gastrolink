@@ -1,0 +1,158 @@
+<div class="overlay" (keydown.escape)="requestClose()">
+  <section class="editor" role="dialog" aria-modal="true" aria-labelledby="modifier-title">
+    <header class="editor-header">
+      <div>
+        <span class="eyebrow">GESTIÓN DEL MENÚ</span>
+        <h2 id="modifier-title">Modificadores</h2>
+        <p>{{ product.name }}</p>
+      </div>
+      <button
+        type="button"
+        class="close-button"
+        (click)="requestClose()"
+        [disabled]="busy"
+        aria-label="Cerrar modificadores"
+      >
+        ×
+      </button>
+    </header>
+
+    <div class="editor-body" (input)="message = ''" (change)="message = ''">
+      <div class="section-heading">
+        <div>
+          <h3>Personaliza las opciones del platillo</h3>
+          <p>Organiza los extras y define cuántas opciones puede elegir el cliente.</p>
+        </div>
+        <button type="button" class="btn btn-secondary" (click)="addGroup()" [disabled]="busy">
+          + Agregar grupo
+        </button>
+      </div>
+
+      <div class="empty-state" *ngIf="!groups.length">
+        <h3>Este platillo aún no tiene modificadores</h3>
+        <p>Agrega un grupo como “Ingredientes extra” y crea sus opciones.</p>
+      </div>
+
+      <fieldset class="group-card" *ngFor="let group of groups; let i = index" [disabled]="busy">
+        <legend>Grupo {{ i + 1 }}</legend>
+        <div class="group-heading">
+          <label class="group-name"
+            >Nombre del grupo<input
+              [(ngModel)]="group.name"
+              maxlength="100"
+              placeholder="Ej. Ingredientes extra"
+          /></label>
+          <button type="button" class="btn btn-danger" (click)="removeGroup(group)">
+            Eliminar grupo
+          </button>
+        </div>
+        <div class="rules-row">
+          <label class="check-label"
+            ><input
+              type="checkbox"
+              [(ngModel)]="group.is_required"
+              (ngModelChange)="group.min_selection = $event ? group.min_selection || 1 : 0"
+            />
+            Selección obligatoria</label
+          >
+          <span class="badge" [class.required]="group.is_required">{{
+            group.is_required ? 'Obligatorio' : 'Opcional'
+          }}</span>
+        </div>
+        <div class="limits">
+          <label
+            >Mínimo de opciones<input
+              type="number"
+              min="0"
+              step="1"
+              [(ngModel)]="group.min_selection"
+          /></label>
+          <label
+            >Máximo de opciones<input
+              type="number"
+              min="1"
+              step="1"
+              [(ngModel)]="group.max_selection"
+          /></label>
+          <label
+            >Orden del grupo<input type="number" min="0" step="1" [(ngModel)]="group.sort_order"
+          /></label>
+        </div>
+        <div class="options-heading">
+          <h4>
+            Opciones <span>{{ group.options.length }}</span>
+          </h4>
+        </div>
+        <div class="option-card" *ngFor="let option of group.options; let j = index">
+          <div class="option-fields">
+            <label class="option-name"
+              >Nombre de la opción<input
+                [(ngModel)]="option.name"
+                maxlength="100"
+                placeholder="Ej. Queso extra"
+            /></label>
+            <label
+              >Precio extra (MXN)<input
+                type="number"
+                min="0"
+                step="0.01"
+                [(ngModel)]="option.price_extra"
+            /></label>
+            <label
+              >Orden<input type="number" min="0" step="1" [(ngModel)]="option.sort_order"
+            /></label>
+          </div>
+          <div class="option-actions">
+            <label class="check-label"
+              ><input type="checkbox" [(ngModel)]="option.is_available" /> Disponible en el
+              menú</label
+            >
+            <button
+              type="button"
+              class="text-danger"
+              (click)="removeOption(group, option)"
+              [attr.aria-label]="'Eliminar opción ' + (option.name || j + 1)"
+            >
+              Eliminar opción
+            </button>
+          </div>
+        </div>
+        <p *ngIf="!group.options.length" class="hint">
+          Agrega las opciones que podrá seleccionar el cliente.
+        </p>
+        <button type="button" class="btn btn-secondary add-option" (click)="addOption(group)">
+          + Agregar opción
+        </button>
+      </fieldset>
+    </div>
+
+    <footer class="editor-footer">
+      <div class="save-status">
+        <p *ngIf="error" role="alert" class="error">{{ error }}</p>
+        <p *ngIf="message && !error" role="status" class="success">{{ message }}</p>
+        <p *ngIf="!error && !message" role="status">
+          {{
+            busy
+              ? 'Guardando grupos y opciones…'
+              : hasChanges()
+                ? 'Tienes cambios sin guardar.'
+                : 'Todos los cambios están guardados.'
+          }}
+        </p>
+      </div>
+      <div class="footer-actions">
+        <button type="button" class="btn btn-secondary" (click)="requestClose()" [disabled]="busy">
+          Cerrar
+        </button>
+        <button
+          type="button"
+          class="btn btn-success"
+          (click)="saveAll()"
+          [disabled]="busy || !hasChanges()"
+        >
+          {{ busy ? 'Guardando…' : 'Guardar cambios' }}
+        </button>
+      </div>
+    </footer>
+  </section>
+</div>
