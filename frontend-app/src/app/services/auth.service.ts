@@ -1,4 +1,4 @@
-﻿import { Injectable, signal, computed, inject } from "@angular/core";
+import { Injectable, signal, computed, inject } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
 import { Router } from "@angular/router";
 import {
@@ -23,6 +23,9 @@ export class AuthService {
   private http = inject(HttpClient);
   private router = inject(Router);
   private sessionRequest?: Observable<boolean>;
+  private readonly ttlMs = 60_000;
+  private lastSessionLoadedAt = 0;
+  private lastSessionToken: string | undefined = undefined;
   readonly token = signal<string | null>(
     localStorage.getItem("gastrolink_token"),
   );
@@ -45,17 +48,7 @@ export class AuthService {
     return this.http
       .post<TokenResponse>(`${API_URL}/auth/login`, { email, password })
       .pipe(
-        tap((response) => {
-          if (
-            !response.access_token ||
-            !response.user?.is_active ||
-            !Array.isArray(response.businesses)
-          )
-            throw new Error("Sesión inválida");
-          localStorage.setItem("gastrolink_token", response.access_token);
-          this.token.set(response.access_token);
-          this.setCurrentSession(response);
-        }),
+        tap((response) => this.applyTokenResponse(response)),
         map(() => true),
         catchError(() => {
           this.clearSession();
@@ -64,15 +57,42 @@ export class AuthService {
       );
   }
 
+  /**
+   * Completa una sesión obtenida por una vía alternativa a usuario/contraseña
+   * (por ejemplo, OTP de recovery validado directamente en Supabase).
+   * Toma el access_token de Supabase, lo valida contra el backend y carga
+   * el perfil y sus negocios en AuthService para que AuthGuard lo reconozca.
+   */
+  loginWithSupabaseToken(accessToken: string): Observable<boolean> {
+    return this.http
+      .post<TokenResponse>(`${API_URL}/auth/session`, {
+        access_token: accessToken,
+      })
+      .pipe(
+        tap((response) => this.applyTokenResponse(response)),
+        map(() => true),
+        catchError((error) => {
+          if (error.status === 401 || error.status === 403) this.clearSession();
+          return of(false);
+        }),
+      );
+  }
+
   loadCurrentUser(): Observable<boolean> {
-    if (!this.token()) return of(false);
+    const currentToken = this.token();
+    if (!currentToken) return of(false);
+    const now = Date.now();
+    const freshSession =
+      this.isAuthenticated() &&
+      this.lastSessionToken === currentToken &&
+      now - this.lastSessionLoadedAt < this.ttlMs;
+    if (freshSession) return of(true);
     if (this.sessionRequest) return this.sessionRequest;
-    const requestedToken = this.token();
     this.sessionRequest = this.http
       .get<CurrentSession>(`${API_URL}/auth/me`)
       .pipe(
         map((response) => {
-          if (this.token() !== requestedToken) return false;
+          if (this.token() !== currentToken) return false;
           if (
             !response.user?.is_active ||
             !Array.isArray(response.businesses)
@@ -81,10 +101,12 @@ export class AuthService {
             return false;
           }
           this.setCurrentSession(response);
+          this.lastSessionToken = currentToken;
+          this.lastSessionLoadedAt = Date.now();
           return true;
         }),
         catchError((error) => {
-          if (this.token() === requestedToken) {
+          if (this.token() === currentToken) {
             if (error.status === 401 || error.status === 403)
               this.clearSession();
             else {
@@ -161,9 +183,24 @@ export class AuthService {
     this.currentUser.set(null);
     this.businesses.set([]);
     this.selectedBusinessId.set(null);
+    this.lastSessionLoadedAt = 0;
+    this.lastSessionToken = undefined;
   }
   logout(): void {
     this.clearSession();
     void this.router.navigate(["/login"]);
+  }
+
+  private applyTokenResponse(response: TokenResponse): void {
+    if (
+      !response.access_token ||
+      !response.user?.is_active ||
+      !Array.isArray(response.businesses)
+    ) {
+      throw new Error("Sesión inválida");
+    }
+    localStorage.setItem("gastrolink_token", response.access_token);
+    this.token.set(response.access_token);
+    this.setCurrentSession(response);
   }
 }

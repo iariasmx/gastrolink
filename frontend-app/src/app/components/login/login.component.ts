@@ -1,13 +1,13 @@
 import { Component, inject, ChangeDetectionStrategy } from "@angular/core";
 
 import { FormsModule } from "@angular/forms";
-import { Router, ActivatedRoute } from "@angular/router";
+import { Router, ActivatedRoute, RouterModule } from "@angular/router";
 import { AuthService } from "../../services/auth.service";
 
 @Component({
   selector: "app-login",
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, RouterModule],
   templateUrl: "./login.component.html",
   changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: "./login.component.css",

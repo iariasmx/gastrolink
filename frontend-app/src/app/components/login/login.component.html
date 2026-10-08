@@ -35,6 +35,12 @@
         />
       </div>
 
+      <div class="forgot-password">
+        <a [routerLink]="['/reset-password-request']" class="forgot-link">
+          ¿Olvidaste tu contraseña?
+        </a>
+      </div>
+
       <button type="submit" class="submit-btn" [disabled]="loading">
         @if (!loading) {
           <span>Ingresar al Panel Admin</span>

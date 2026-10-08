@@ -1,4 +1,7 @@
-"""Business-scoped API. Supabase Auth verifies JWTs; service client never holds user sessions."""
+import logging
+
+logger = logging.getLogger(__name__)
+from functools import lru_cache
 from typing import Literal, Optional
 from uuid import UUID
 from secrets import token_urlsafe
@@ -25,10 +28,38 @@ class StrictOptionCreate(OptionCreate):
 
 
 def rows(table, **filters):
+    return _rows_query(table, tuple(sorted(filters.items(), key=lambda kv: kv[0])))
+
+
+def _rows_query(table, filters):
+    cache_key = (table, filters)
+    cached = _rows_cache.get(cache_key)
+    if cached is not None:
+        return cached
     query = supabase.table(table).select('*')
-    for key, value in filters.items():
+    for key, value in filters:
         query = query.eq(key, str(value))
-    return query.execute().data or []
+    data = query.execute().data or []
+    _rows_cache[cache_key] = data
+    if len(_rows_cache) > 2048:
+        for _ in range(64):
+            try:
+                _rows_cache.pop(next(iter(_rows_cache)))
+            except StopIteration:
+                break
+    return data
+
+
+_rows_cache = {}
+
+
+def invalidate_rows_cache(*tables):
+    if not tables:
+        _rows_cache.clear()
+        return
+    to_remove = [k for k in _rows_cache if k[0] in tables]
+    for k in to_remove:
+        _rows_cache.pop(k, None)
 
 
 def one(table, **filters):
@@ -45,12 +76,17 @@ def current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(b
         raise HTTPException(503, 'La administración requiere SUPABASE_SECRET_KEY o SUPABASE_SERVICE_ROLE_KEY en el backend')
     try:
         auth = supabase.auth.get_user(credentials.credentials)
-    except Exception:
+    except Exception as exc:
+        logger.warning("current_user get_user exception type=%s msg=%s key_prefix=%s key_len=%s",
+                       type(exc).__name__, str(exc),
+                       (settings.SUPABASE_SECRET_KEY or settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_KEY or '')[:18],
+                       len(settings.SUPABASE_SECRET_KEY or settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_KEY or ''))
         raise HTTPException(401, 'Token inválido o vencido', headers={'WWW-Authenticate': 'Bearer'})
     if not auth.user:
         raise HTTPException(401, 'Token inválido')
     profiles = rows('users', id=auth.user.id)
     if not profiles or not profiles[0]['is_active']:
+        logger.warning("current_user missing or inactive profile auth_user_id=%s profiles=%s", auth.user.id, profiles)
         raise HTTPException(403, 'Usuario inactivo o sin perfil')
     return profiles[0]
 
@@ -89,18 +125,34 @@ class Login(BaseModel):
     password: str = Field(min_length=1)
 
 
+class SessionExchange(BaseModel):
+    access_token: str = Field(min_length=1)
+
+
 @router.post('/auth/login')
 def login(payload: Login):
     # Separate client: sign-in must not change the database client's privileged credentials.
     client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+    logger.info("POST /auth/login attempt email=%s key_prefix=%s key_len=%s url=%s",
+                payload.email, settings.SUPABASE_KEY[:18], len(settings.SUPABASE_KEY), settings.SUPABASE_URL)
     try:
         result = client.auth.sign_in_with_password(payload.model_dump())
-    except Exception:
+    except Exception as exc:
+        logger.warning("POST /auth/login sign_in exception type=%s msg=%s", type(exc).__name__, str(exc))
         raise HTTPException(401, 'Credenciales incorrectas')
     if not result.session:
+        logger.warning("POST /auth/login no session returned")
         raise HTTPException(401, 'Credenciales incorrectas')
     user = current_user(HTTPAuthorizationCredentials(scheme='Bearer', credentials=result.session.access_token))
     return {'access_token': result.session.access_token, 'token_type': 'bearer',
+            'user_email': user['email'], 'user': user, 'businesses': businesses(user)}
+
+
+@router.post('/auth/session')
+def attach_session(payload: SessionExchange):
+    logger.info("POST /auth/session token_prefix=%s", payload.access_token[:20] if payload.access_token else None)
+    user = current_user(HTTPAuthorizationCredentials(scheme='Bearer', credentials=payload.access_token))
+    return {'access_token': payload.access_token, 'token_type': 'bearer',
             'user_email': user['email'], 'user': user, 'businesses': businesses(user)}
 
 
@@ -152,6 +204,8 @@ def write(table, data, record_id=None, **scope):
         if getattr(exc, 'code', '') == '23505':
             raise HTTPException(409, 'El slug o la asociación ya existe')
         raise HTTPException(500, 'No se pudo guardar el recurso')
+    finally:
+        _invalidate_caches_for_write(table, record_id=record_id, scope=scope)
     if not result:
         raise HTTPException(404, 'Recurso no encontrado')
     return result[0]
@@ -162,8 +216,27 @@ def remove(table, record_id, **scope):
     for key, value in scope.items():
         query = query.eq(key, str(value))
     if not query.execute().data:
+        _invalidate_caches_for_write(table, record_id=record_id, scope=scope)
         raise HTTPException(404, 'Recurso no encontrado')
+    _invalidate_caches_for_write(table, record_id=record_id, scope=scope)
     return {'id': str(record_id)}
+
+
+_TABLE_TO_MENU_TABLES = {
+    'restaurants': ['restaurants'],
+    'categories': ['categories'],
+    'products': ['products', 'categories'],
+    'modifier_groups': ['modifier_groups', 'products', 'categories'],
+    'modifier_options': ['modifier_options', 'modifier_groups', 'products', 'categories'],
+    'users': [],
+    'user_businesses': [],
+}
+
+
+def _invalidate_caches_for_write(table, record_id=None, scope=None):
+    invalidate_rows_cache(table, *(_TABLE_TO_MENU_TABLES.get(table) or []))
+    clear_menu_cache()
+    return None
 
 
 @router.get('/admin/businesses')
@@ -254,6 +327,33 @@ def unassign_user(business_id: UUID, user_id: UUID, user=Depends(current_user)):
 
 
 def menu(business_id, include_all):
+    cache_key = (str(business_id), bool(include_all))
+    cached = _menu_cache.get(cache_key)
+    if cached:
+        return cached
+    result = _build_menu(business_id, include_all)
+    _menu_cache[cache_key] = result
+    if len(_menu_cache) > 64:
+        try:
+            _menu_cache.pop(next(iter(_menu_cache)))
+        except StopIteration:
+            pass
+    return result
+
+
+_menu_cache = {}
+
+
+def clear_menu_cache(business_id=None):
+    if business_id is None:
+        _menu_cache.clear()
+        return
+    remove_keys = [k for k in _menu_cache if str(k[0]) == str(business_id)]
+    for k in remove_keys:
+        _menu_cache.pop(k, None)
+
+
+def _build_menu(business_id, include_all):
     restaurant = one('restaurants', id=business_id)
     if not include_all and not restaurant['is_active']:
         raise HTTPException(404, 'Negocio no encontrado o inactivo')
@@ -262,8 +362,6 @@ def menu(business_id, include_all):
         categories = [c for c in categories if c.get('is_active', True)]
     categories.sort(key=lambda c: c['sort_order'])
     for category in categories:
-        # The category was already restricted to this business. This also
-        # supports the pre-migration schema for existing public menus.
         products = rows('products', category_id=category['id'])
         if not include_all:
             products = [p for p in products if p['is_available']]

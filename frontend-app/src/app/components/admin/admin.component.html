@@ -43,7 +43,30 @@
   <!-- Admin Main Content -->
   <main class="admin-main">
     @if (loading()) {
-    <p role="status">Cargando negocio?</p>
+    <div class="loading-hero" role="status" aria-live="polite">
+      <div class="spinner-wrapper">
+        <div class="gastrolink-spinner" aria-hidden="true"></div>
+      </div>
+      <div class="loading-text-stack">
+        <h2 class="loading-title">Cargando tu panel de administración</h2>
+        <p class="loading-subtitle">
+          @if (restaurant()) {
+          Preparando el menú de <strong>{{ restaurant()?.name }}</strong>...
+          } @else {
+          Trayendo la información de tu restaurante, un momento por favor...
+          }
+        </p>
+        <div class="skeleton-stack" aria-hidden="true">
+          <div class="skeleton skeleton-header"></div>
+          <div class="skeleton-grid">
+            <div class="skeleton skeleton-card skeleton-card-large"></div>
+            <div class="skeleton skeleton-card"></div>
+            <div class="skeleton skeleton-card"></div>
+            <div class="skeleton skeleton-card"></div>
+          </div>
+        </div>
+      </div>
+    </div>
     }
     @if (loadError()) {
     <div role="alert">

@@ -1,0 +1,85 @@
+<div class="verify-container">
+  <div class="glass-card">
+    <div class="brand-header">
+      <span class="brand-logo">🔢</span>
+      <h1>Código de Recuperación</h1>
+      @if (email()) {
+        <p class="subtitle">
+          Hemos enviado un código de 6 dígitos a <strong>{{ email() }}</strong>
+        </p>
+      }
+    </div>
+
+    @if (!email()) {
+      <div class="error-banner">
+        ⚠️ No hay un correo pendiente de verificación. Empieza de nuevo la
+        recuperación de contraseña.
+      </div>
+      <div class="card-footer">
+        <a [routerLink]="['/reset-password-request']" class="submit-btn-link">
+          Solicitar código
+        </a>
+      </div>
+    } @else {
+      <form class="verify-form" (ngSubmit)="onVerify()" (paste)="onPaste($event)">
+        @if (errorMessage()) {
+          <div class="error-banner">⚠️ {{ errorMessage() }}</div>
+        }
+        @if (successMessage()) {
+          <div class="success-banner">✅ {{ successMessage() }}</div>
+        }
+
+        <div class="digits-group">
+          @for (digit of digits(); track $index) {
+            <input
+              #digitInput
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="1"
+              class="digit-input"
+              [value]="digit"
+              (input)="onDigitInput($index, $event)"
+              (keydown)="onDigitKeydown($index, $event)"
+              [disabled]="loading()"
+              required
+            />
+          }
+        </div>
+
+        <button
+          type="submit"
+          class="submit-btn"
+          [disabled]="loading() || otpToken.length !== 6"
+        >
+          @if (!loading()) {
+            <span>Verificar código</span>
+          }
+          @if (loading()) {
+            <span>Verificando...</span>
+          }
+        </button>
+
+        <div class="resend-row">
+          <button
+            type="button"
+            class="resend-btn"
+            [disabled]="resending() || loading()"
+            (click)="onResend()"
+          >
+            @if (!resending()) {
+              <span>Reenviar código</span>
+            }
+            @if (resending()) {
+              <span>Enviando...</span>
+            }
+          </button>
+        </div>
+      </form>
+
+      <div class="card-footer">
+        <a [routerLink]="['/login']" class="back-link">← Volver al inicio de sesión</a>
+      </div>
+    }
+  </div>
+</div>

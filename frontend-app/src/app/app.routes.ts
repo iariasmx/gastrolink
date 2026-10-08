@@ -2,12 +2,18 @@ import { Routes } from "@angular/router";
 import { MenuComponent } from "./components/menu/menu.component";
 import { AdminComponent } from "./components/admin/admin.component";
 import { LoginComponent } from "./components/login/login.component";
+import { ResetPasswordRequestComponent } from "./components/reset-password-request/reset-password-request.component";
+import { VerifyOtpComponent } from "./components/verify-otp/verify-otp.component";
+import { ResetPasswordComponent } from "./components/reset-password/reset-password.component";
 import { AuthGuard } from "./guards/auth.guard";
 import { BusinessListComponent } from "./components/business-list/business-list.component";
 import { BusinessFormComponent } from "./components/business-form/business-form.component";
 
 export const routes: Routes = [
   { path: "login", component: LoginComponent },
+  { path: "reset-password-request", component: ResetPasswordRequestComponent },
+  { path: "verify-otp", component: VerifyOtpComponent },
+  { path: "reset-password", component: ResetPasswordComponent },
   {
     path: "admin",
     component: BusinessListComponent,
