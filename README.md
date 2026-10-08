@@ -430,3 +430,32 @@ Para desarrollo a detalle, scripts de migración completa, contratos endpoint po
 - [agente.md](file:///g:/Desarrollo/Proyectos/gastrolink/agente.md) — guía ejecutable y progreso fases, última revisión **2026-10-08**.
 
 Soporte y gestión de incidencias: reporta bugs con captura del `Network → Request/Response` (Supabase o FastAPI) y correo del usuario afectado (si aplica).
+
+## Capturas 
+
+<img width="713" height="795" alt="image" src="https://github.com/user-attachments/assets/8a312d15-904f-4281-b3c2-d629a9371e0f" />
+
+<img width="1213" height="441" alt="image" src="https://github.com/user-attachments/assets/bb468a1a-1165-407f-9964-a80256a768e9" />
+
+<img width="1897" height="745" alt="image" src="https://github.com/user-attachments/assets/068bb5ec-ec80-471b-9272-335238d3003b" />
+
+<img width="1880" height="917" alt="image" src="https://github.com/user-attachments/assets/9f8fce35-e27f-41ad-b628-160c49932e95" />
+
+<img width="1909" height="756" alt="image" src="https://github.com/user-attachments/assets/d79fc6e8-173b-4a1f-9f99-abebbe775e9e" />
+
+<img width="1915" height="941" alt="image" src="https://github.com/user-attachments/assets/53f9de0f-9b2c-4da3-82a5-2de935e60831" />
+
+<img width="1174" height="886" alt="image" src="https://github.com/user-attachments/assets/31f61a8a-f5c7-42e8-8df8-6f78141e9178" />
+
+<img width="1481" height="931" alt="image" src="https://github.com/user-attachments/assets/8c5a1516-3851-4583-b058-645c3c8b46fb" />
+
+<img width="1454" height="942" alt="image" src="https://github.com/user-attachments/assets/48524d78-fa48-4541-b03a-d028d77437db" />
+
+
+
+
+
+
+
+
+
