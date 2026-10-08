@@ -72,23 +72,23 @@ def generate_whatsapp_order_link(order: schemas.OrderCheckoutRequest):
         phone = restaurant.get("whatsapp_number", "").replace("+", "").replace(" ", "").replace("-", "")
 
         msg_lines = [
-            f"🛒 *NUEVO PEDIDO - {restaurant.get('name', 'GastroLink')}*",
+            f"*NUEVO PEDIDO - {restaurant.get('name', 'GastroLink')}*",
             "----------------------------------",
-            f"👤 *Cliente:* {order.customer_name}",
-            f"📞 *Teléfono:* {order.customer_phone}",
-            f"📍 *Modalidad:* {order.service_type.upper()}"
+            f"*Cliente:* {order.customer_name}",
+            f"*Teléfono:* {order.customer_phone}",
+            f"*Modalidad:* {order.service_type.upper()}"
         ]
 
         if order.service_type.lower() == "table" and order.table_number:
-            msg_lines.append(f"🪑 *Mesa:* {order.table_number}")
+            msg_lines.append(f"*Mesa:* {order.table_number}")
         elif order.service_type.lower() == "delivery":
-            msg_lines.append(f"🏠 *Dirección:* {order.delivery_address or 'No especificada'}")
+            msg_lines.append(f"*Dirección:* {order.delivery_address or 'No especificada'}")
             if order.address_references:
-                msg_lines.append(f"ℹ️ *Referencias:* {order.address_references}")
+                msg_lines.append(f"*Referencias:* {order.address_references}")
 
-        msg_lines.append(f"💳 *Método de Pago:* {order.payment_method}")
+        msg_lines.append(f"*Método de pago:* {order.payment_method}")
         msg_lines.append("----------------------------------")
-        msg_lines.append("📋 *DETALLE DEL PEDIDO:*")
+        msg_lines.append("*DETALLE DEL PEDIDO:*")
 
         subtotal = 0.0
         for idx, item in enumerate(order.items, start=1):
@@ -110,19 +110,19 @@ def generate_whatsapp_order_link(order: schemas.OrderCheckoutRequest):
                 msg_lines.append(mod_line)
                 
             if item.notes:
-                msg_lines.append(f"    📝 _Nota: {item.notes}_")
+                msg_lines.append(f"    _Nota: {item.notes}_")
 
         delivery_fee = float(restaurant.get("delivery_fee", 0.00)) if order.service_type.lower() == "delivery" else 0.0
         grand_total = subtotal + delivery_fee
 
         msg_lines.append("----------------------------------")
-        msg_lines.append(f"💵 *Subtotal:* ${subtotal:.2f}")
+        msg_lines.append(f"*Subtotal:* ${subtotal:.2f}")
         if delivery_fee > 0:
-            msg_lines.append(f"🛵 *Costo Envío:* ${delivery_fee:.2f}")
-        msg_lines.append(f"💰 *TOTAL A PAGAR:* ${grand_total:.2f}")
+            msg_lines.append(f"*Costo de envío:* ${delivery_fee:.2f}")
+        msg_lines.append(f"*TOTAL A PAGAR:* ${grand_total:.2f}")
         
         if order.payment_method.lower() == "transferencia":
-            msg_lines.append("\n⚠️ _Por favor adjunta el comprobante de tu transferencia a este chat._")
+            msg_lines.append("\n_Por favor adjunta el comprobante de tu transferencia a este chat._")
             
         msg_lines.append("\n¡Gracias por tu compra!")
 

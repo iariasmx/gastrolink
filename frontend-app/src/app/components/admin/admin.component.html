@@ -1,0 +1,331 @@
+<div class="admin-layout">
+  <!-- Admin Sidebar -->
+  <aside class="admin-sidebar">
+    <div class="sidebar-brand">
+      <span class="brand-logo">⚡</span>
+      <div>
+        <h2>GastroLink</h2>
+        <span class="admin-badge">Panel Admin</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-menu">
+      <a routerLink="/admin/businesses" class="preview-btn">? Cambiar negocio</a>
+      <button [class.active]="activeTab() === 'overview'" (click)="openTab('overview')">
+        📊 Resumen & Código QR
+      </button>
+      <button [class.active]="activeTab() === 'menu'" (click)="openTab('menu')">
+        🍽️ Gestión de Menú (CRUD)
+      </button>
+      <button [class.active]="activeTab() === 'settings'" (click)="openTab('settings')">
+        ⚙️ Configuración del Negocio
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      @if (authService.currentUserEmail()) {
+      <div class="user-info-box">
+        <span class="user-icon">👤</span>
+        <span class="user-email">{{ authService.currentUserEmail() }}</span>
+      </div>
+      }
+      @if (restaurant()) {
+      <a [routerLink]="['/menu', restaurant()!.slug]" target="_blank" class="preview-btn">
+        🔗 Ver Menú Público ↗
+      </a>
+      }
+      <button class="logout-btn" (click)="authService.logout()">
+        🚪 Cerrar Sesión
+      </button>
+    </div>
+  </aside>
+
+  <!-- Admin Main Content -->
+  <main class="admin-main">
+    @if (loading()) {
+    <p role="status">Cargando negocio?</p>
+    }
+    @if (loadError()) {
+    <div role="alert">
+      <p>{{ loadError() }}</p>
+      <button (click)="loadBusiness()">Reintentar</button>
+    </div>
+    }
+    @if (actionError()) {
+    <p role="alert">{{ actionError() }}</p>
+    }
+    @if (actionMessage()) {
+    <p role="status">{{ actionMessage() }}</p>
+    }
+    @if (restaurant() && !loading() && !loadError()) {
+    <!-- Header Bar -->
+    <header class="admin-header">
+      <div>
+        <h1>{{ restaurant()?.name || "Mi Restaurante" }}</h1>
+        <p class="subtitle">
+          Administra tu catálogo digital y obtén tu código QR imprimible
+        </p>
+      </div>
+      <div class="slug-pill">
+        <span>Slug actual:</span>
+        <code>/menu/{{ restaurant()?.slug }}</code>
+      </div>
+    </header>
+    <!-- Tab 1: Overview & QR Generator -->
+    @if (activeTab() === "overview") {
+    <section class="tab-content">
+      <div class="grid-2col">
+        <!-- QR Card -->
+        <div class="card qr-card">
+          <div class="card-header">
+            <h3>📱 Código QR para Mesas y Mostrador</h3>
+            <p>
+              Escanea este código con cualquier cámara móvil para acceder al
+              menú interactivo.
+            </p>
+          </div>
+          <div class="qr-preview-box">
+            <img [src]="getQrUrl()" alt="Código QR del Menú Digital" class="qr-image" />
+            <p class="qr-target-url">{{ getMenuFullUrl() }}</p>
+          </div>
+          <div class="qr-actions">
+            <button class="btn btn-primary" (click)="downloadQr()">
+              ⬇️ Descargar QR en Alta Resolución
+            </button>
+            <button class="btn btn-secondary" (click)="printQr()">
+              🖨️ Imprimir Cartel de Mesa
+            </button>
+          </div>
+        </div>
+        <!-- Fast Stats -->
+        <div class="stats-column">
+          <div class="card stat-box">
+            <span class="stat-icon">📁</span>
+            <div>
+              <h4>Categorías Activas</h4>
+              <p class="stat-value">{{ categories().length }}</p>
+            </div>
+          </div>
+          <div class="card stat-box">
+            <span class="stat-icon">🌮</span>
+            <div>
+              <h4>Total de Platillos</h4>
+              <p class="stat-value">{{ getTotalProducts() }}</p>
+            </div>
+          </div>
+          <div class="card stat-box">
+            <span class="stat-icon">💬</span>
+            <div>
+              <h4>Número de Pedidos WhatsApp</h4>
+              <p class="stat-value">{{ restaurant()?.whatsapp_number }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    }
+    <!-- Tab 2: Menu CRUD -->
+    @if (activeTab() === "menu") {
+    <section class="tab-content">
+      <div class="card">
+        <div class="card-header flex-between">
+          <div>
+            <h3>🍽️ Administración del Menú</h3>
+            <p>
+              Agrega, edita información, cambia precios o deshabilita
+              platillos en tiempo real.
+            </p>
+          </div>
+          <button class="btn btn-success" (click)="openAddProductModal()">
+            + Nuevo Platillo
+          </button>
+        </div>
+        <!-- Categories List -->
+        @for (cat of categories(); track cat) {
+        <div class="crud-category-block">
+          <div class="category-block-header">
+            <h4>{{ cat.name }}</h4>
+            <span class="products-count">{{ cat.products.length }} productos</span>
+          </div>
+          <div class="crud-products-list">
+            @for (prod of cat.products; track prod) {
+            <div class="crud-product-item">
+              <img [src]="
+                          prod.image_url ||
+                          'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=400&q=80'
+                        " (error)="onImageError($event)" [alt]="prod.name" class="crud-thumb" />
+              <div class="crud-item-info">
+                <h5>{{ prod.name }}</h5>
+                <p class="crud-item-desc">{{ prod.description }}</p>
+                <span class="crud-item-price">${{ prod.price | number: "1.2-2" }}</span>
+              </div>
+              <div class="crud-item-actions">
+                <button class="btn btn-secondary" [disabled]="prod.id.startsWith('prod-')"
+                  (click)="modifiersProduct = prod">
+                  Modificadores
+                </button>
+                <button class="toggle-status-btn" [class.available]="prod.is_available"
+                  (click)="toggleAvailability(prod)">
+                  {{
+                  prod.is_available ? "✅ Disponible" : "❌ Agotado"
+                  }}
+                </button>
+                <button class="btn-icon btn-edit" (click)="openEditProductModal(prod)" title="Editar Platillo">
+                  ✏️
+                </button>
+                <button class="btn-icon btn-delete" (click)="deleteProduct(prod.id)" title="Eliminar Platillo">
+                  🗑️
+                </button>
+              </div>
+            </div>
+            }
+          </div>
+        </div>
+        }
+      </div>
+    </section>
+    }
+    <!-- Tab 3: Restaurant Settings -->
+    @if (activeTab() === "settings") {
+    <section class="tab-content">
+      <div class="card max-w-700">
+        <h3>⚙️ Configuración General del Restaurante</h3>
+        <form (ngSubmit)="saveSettings()" class="settings-form">
+          <div class="form-group">
+            <label>Nombre del Restaurante</label>
+            <input type="text" [(ngModel)]="editName" name="name" required />
+          </div>
+          <div class="form-group">
+            <label>Slug Único (URL del Menú)</label>
+            <input type="text" [(ngModel)]="editSlug" name="slug" required pattern="[a-z0-9]+(-[a-z0-9]+)*"
+              maxlength="100" />
+          </div>
+          <div class="form-group">
+            <label>Teléfono de WhatsApp (con clave de país)</label>
+            <input type="text" [(ngModel)]="editWhatsapp" name="whatsapp" placeholder="Ej. 525512345678" required />
+          </div>
+          <div class="form-group">
+            <label>URL del Logo</label>
+            <input type="text" [(ngModel)]="editLogo" name="logo" placeholder="https://..." />
+          </div>
+          <div class="form-group">
+            <label>Costo de Envío ($ MXN)</label>
+            <input type="number" [(ngModel)]="editDeliveryFee" name="deliveryFee" step="5" />
+          </div>
+          <div class="form-group">
+            <label>Pedido m?nimo ($ MXN)</label>
+            <input type="number" [(ngModel)]="editMinimumOrder" name="minimumOrder" min="0" step="0.01" required />
+          </div>
+          <div class="form-checkboxes">
+            <label><input type="checkbox" [(ngModel)]="editIsActive" name="isActive" />
+              Negocio activo</label>
+            <label>
+              <input type="checkbox" [(ngModel)]="editAllowsTable" name="allowsTable" />
+              Permitir Pedidos en Mesa
+            </label>
+            <label>
+              <input type="checkbox" [(ngModel)]="editAllowsTakeaway" name="allowsTakeaway" />
+              Permitir Pedidos Para Llevar
+            </label>
+            <label>
+              <input type="checkbox" [(ngModel)]="editAllowsDelivery" name="allowsDelivery" />
+              Permitir Servicio a Domicilio
+            </label>
+          </div>
+          <button [disabled]="actionBusy()" type="submit" class="btn btn-primary">
+            💾 Guardar Cambios
+          </button>
+        </form>
+      </div>
+    </section>
+    }
+    }
+  </main>
+
+  @if (modifiersProduct) {
+  <app-modifier-editor [businessId]="businessId()" [product]="modifiersProduct" (close)="modifiersProduct = null"
+    (saved)="updateProductModifiers($event)"></app-modifier-editor>
+  }
+
+  <!-- Modal para Agregar Platillo -->
+  @if (showAddModal) {
+  <div class="modal-overlay" (click)="showAddModal = false">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <h3>+ Agregar Nuevo Platillo</h3>
+      <div class="form-group">
+        <label>Categoría</label>
+        <select [(ngModel)]="newProductCategoryId">
+          @for (c of categories(); track c) {
+          <option [value]="c.id">{{ c.name }}</option>
+          }
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Nombre del Platillo</label>
+        <input type="text" [(ngModel)]="newProductName" placeholder="Ej. Quesadilla de Arrachera" />
+      </div>
+      <div class="form-group">
+        <label>Precio ($ MXN)</label>
+        <input type="number" [(ngModel)]="newProductPrice" placeholder="0.00" />
+      </div>
+      <div class="form-group">
+        <label>Descripción</label>
+        <textarea [(ngModel)]="newProductDescription" rows="3" placeholder="Ingredientes o especificaciones"></textarea>
+      </div>
+      <div class="form-group">
+        <label>URL de Imagen</label>
+        <input type="text" [(ngModel)]="newProductImageUrl" placeholder="https://..." />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" (click)="showAddModal = false">
+          Cancelar
+        </button>
+        <button class="btn btn-success" [disabled]="actionBusy()" (click)="saveNewProduct()">
+          Guardar Platillo
+        </button>
+      </div>
+    </div>
+  </div>
+  }
+
+  <!-- Modal para Editar Platillo -->
+  @if (showEditModal) {
+  <div class="modal-overlay" (click)="showEditModal = false">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <h3>✏️ Editar Informacion del Platillo</h3>
+      <div class="form-group">
+        <label>Categoría</label>
+        <select [(ngModel)]="editProductCategoryId">
+          @for (c of categories(); track c) {
+          <option [value]="c.id">{{ c.name }}</option>
+          }
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Nombre del Platillo</label>
+        <input type="text" [(ngModel)]="editProductName" placeholder="Nombre del producto" />
+      </div>
+      <div class="form-group">
+        <label>Precio ($ MXN)</label>
+        <input type="number" [(ngModel)]="editProductPrice" placeholder="0.00" />
+      </div>
+      <div class="form-group">
+        <label>Descripción</label>
+        <textarea [(ngModel)]="editProductDescription" rows="3" placeholder="Descripción del platillo"></textarea>
+      </div>
+      <div class="form-group">
+        <label>URL de Imagen</label>
+        <input type="text" [(ngModel)]="editProductImageUrl" placeholder="https://..." />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" (click)="showEditModal = false">
+          Cancelar
+        </button>
+        <button class="btn btn-primary" [disabled]="actionBusy()" (click)="saveEditedProduct()">
+          💾 Guardar Cambios
+        </button>
+      </div>
+    </div>
+  </div>
+  }
+</div>

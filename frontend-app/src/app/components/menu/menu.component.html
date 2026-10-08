@@ -1,0 +1,242 @@
+<div class="menu-container">
+  <!-- Loading State -->
+  @if (menuService.loading()) {
+    <div class="loading-state">
+      <div class="spinner"></div>
+      <p>Preparando una experiencia deliciosa...</p>
+    </div>
+  }
+
+  <!-- Content -->
+  @if (!menuService.loading() && menuService.menuData()) {
+    <div class="menu-content">
+      <!-- Hero Header -->
+      <header class="restaurant-hero">
+        <div class="hero-glow"></div>
+        <div class="hero-content">
+          @if (menuService.menuData()?.restaurant?.logo_url) {
+            <img
+              [src]="
+                $safeNavigationMigration(
+                  $safeNavigationMigration(
+                    menuService.menuData()?.restaurant?.logo_url
+                  )
+                )
+              "
+              [alt]="
+                $safeNavigationMigration(
+                  $safeNavigationMigration(
+                    menuService.menuData()?.restaurant?.name
+                  )
+                )
+              "
+              class="restaurant-logo"
+            />
+          }
+          <div class="restaurant-info">
+            <span class="welcome-badge">🔥 ¡Menú Digital Disponible!</span>
+            <h1>{{ menuService.menuData()?.restaurant?.name }}</h1>
+            <p class="tagline">
+              Selecciona tus platillos favoritos y ordena directo por WhatsApp
+            </p>
+          </div>
+        </div>
+      </header>
+      <!-- Category Tabs Bar -->
+      <nav class="categories-bar">
+        <div class="categories-scroll">
+          @for (
+            cat of menuService.menuData()?.categories;
+            track cat;
+            let first = $first
+          ) {
+            <button
+              [class.active]="
+                activeCategoryId === cat.id || (first && !activeCategoryId)
+              "
+              (click)="scrollToCategory(cat.id)"
+              class="category-tab"
+            >
+              {{ cat.name }}
+            </button>
+          }
+        </div>
+      </nav>
+      <!-- Main Products Grid View -->
+      <main class="menu-main">
+        @for (cat of menuService.menuData()?.categories; track cat) {
+          <section [id]="cat.id" class="category-section">
+            <div class="category-header">
+              <h2 class="category-title">{{ cat.name }}</h2>
+              <span class="category-count"
+                >{{ cat.products.length }} delicias</span
+              >
+            </div>
+            <div class="products-grid">
+              @for (product of cat.products; track product) {
+                <article class="product-card">
+                  @if (product.image_url) {
+                    <div class="product-img-wrapper">
+                      <img
+                        [src]="product.image_url"
+                        (error)="onImageError($event)"
+                        [alt]="product.name"
+                        loading="lazy"
+                      />
+                      <span class="flavor-tag">Popular 🌶️</span>
+                    </div>
+                  }
+                  <div class="product-details">
+                    <div class="product-info-top">
+                      <div class="product-title-row">
+                        <h3 class="product-title">{{ product.name }}</h3>
+                        <span class="product-price"
+                          >&#36;{{ product.price | number: "1.2-2" }}</span
+                        >
+                      </div>
+                      @if (product.description) {
+                        <p class="product-description">
+                          {{ product.description }}
+                        </p>
+                      }
+                    </div>
+                    <div class="product-actions">
+                      <button
+                        class="add-btn"
+                        (click)="handleProductClick(product)"
+                      >
+                        <span>+ Añadir al Pedido</span>
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              }
+            </div>
+          </section>
+        }
+      </main>
+      <!-- Floating Cart Bar -->
+      @if (cartService.totalItemsCount() > 0) {
+        <div class="floating-cart-bar">
+          <div class="cart-summary" (click)="isCartOpen = true">
+            <div class="cart-badge">
+              <span>{{ cartService.totalItemsCount() }}</span>
+            </div>
+            <div class="cart-text">
+              <span class="view-cart-label">Tu Carrito</span>
+              <span class="cart-total"
+                >&#36;{{ cartService.subtotal() | number: "1.2-2" }} MXN</span
+              >
+            </div>
+          </div>
+          <button class="checkout-action-btn" (click)="isCartOpen = true">
+            <span>Completar Pedido</span>
+            <span class="arrow-icon">➔</span>
+          </button>
+        </div>
+      }
+      <!-- MODAL DE PERSONALIZACIÓN DE MODIFICADORES -->
+      @if (isModalOpen) {
+        <div class="modal-overlay" (click)="closeModifiersModal()">
+          <div class="modal-content" (click)="$event.stopPropagation()">
+            <div class="modal-header">
+              <div>
+                <h3>Personaliza tu platillo</h3>
+                <p class="modal-product-name">{{ selectedProduct?.name }}</p>
+              </div>
+              <button class="close-modal-btn" (click)="closeModifiersModal()">
+                ✕
+              </button>
+            </div>
+            <div class="modal-body">
+              @for (group of selectedProduct?.modifier_groups; track group) {
+                <div class="modifier-group-box">
+                  <div class="group-info-header">
+                    <h4 class="group-title">{{ group.name }}</h4>
+                    <span
+                      class="group-badge"
+                      [class.required-badge]="group.is_required"
+                    >
+                      {{ group.is_required ? "Obligatorio" : "Opcional" }} (Máx.
+                      {{ group.max_selection }})
+                    </span>
+                  </div>
+                  <div class="options-container">
+                    @for (option of group.options; track option) {
+                      <div class="option-row">
+                        <label class="option-label-wrapper">
+                          <!-- Selección Única (Radio) si el grupo permite máximo 1 opción -->
+                          @if (group.max_selection === 1) {
+                            <input
+                              type="radio"
+                              [name]="group.id"
+                              [checked]="isOptionSelected(option.id)"
+                              (click)="selectRadioOption(group, option)"
+                            />
+                          }
+                          <!-- Selección Múltiple (Checkbox) si permite más de 1 opción -->
+                          @if (group.max_selection > 1) {
+                            <input
+                              type="checkbox"
+                              [checked]="isOptionSelected(option.id)"
+                              (change)="toggleCheckboxOption(group, option)"
+                              [disabled]="
+                                !isOptionSelected(option.id) &&
+                                isGroupSelectionFull(group)
+                              "
+                            />
+                          }
+                          <span class="option-text-name">{{
+                            option.name
+                          }}</span>
+                        </label>
+                        @if (option.price_extra > 0) {
+                          <span class="option-price-extra">
+                            +&#36;{{ option.price_extra | number: "1.2-2" }}
+                          </span>
+                        }
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+              <!-- Notas adicionales del platillo -->
+              <div class="modal-notes-section">
+                <label class="notes-label"
+                  >Instrucciones especiales para cocina</label
+                >
+                <textarea
+                  [(ngModel)]="productNotes"
+                  placeholder="Ej. Sin cebolla, aderezos aparte, salsa bien picosa..."
+                  rows="2"
+                >
+                </textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <div class="modal-price-summary">
+                <span class="total-label">Total Platillo:</span>
+                <span class="calculated-price"
+                  >&#36;{{ calculatedItemPrice() | number: "1.2-2" }} MXN
+                </span>
+              </div>
+              <button
+                class="confirm-add-btn"
+                [disabled]="!isModalSelectionValid()"
+                (click)="confirmModifiersAndAddToCart()"
+              >
+                Agregar al Pedido
+              </button>
+            </div>
+          </div>
+        </div>
+      }
+      <app-cart-drawer
+        [isOpen]="isCartOpen"
+        [restaurant]="menuService.menuData()?.restaurant || null"
+        (close)="isCartOpen = false"
+      >
+      </app-cart-drawer>
+    </div>
+  }
+</div>

@@ -1,909 +1,31 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
-import { MenuService } from '../../services/menu.service';
-import { CartService } from '../../services/cart.service';
-import { CartDrawerComponent } from '../cart-drawer/cart-drawer.component';
+import {
+  Component,
+  OnInit,
+  computed,
+  inject,
+  signal,
+  ChangeDetectionStrategy,
+} from "@angular/core";
+import { CommonModule } from "@angular/common";
+import { FormsModule } from "@angular/forms";
+import { ActivatedRoute } from "@angular/router";
+import { MenuService } from "../../services/menu.service";
+import { CartService } from "../../services/cart.service";
+import { CartDrawerComponent } from "../cart-drawer/cart-drawer.component";
 import {
   ModifierGroup,
   ModifierOption,
   Product,
   SelectedModifier,
-} from '../../models/restaurant.model';
+} from "../../models/restaurant.model";
 
 @Component({
-  selector: 'app-menu',
+  selector: "app-menu",
   standalone: true,
   imports: [CommonModule, FormsModule, CartDrawerComponent],
-  template: `
-    <div class="menu-container">
-      <!-- Loading State -->
-      <div *ngIf="menuService.loading()" class="loading-state">
-        <div class="spinner"></div>
-        <p>Preparando una experiencia deliciosa...</p>
-      </div>
-
-      <!-- Content -->
-      <div *ngIf="!menuService.loading() && menuService.menuData()" class="menu-content">
-        <!-- Hero Header -->
-        <header class="restaurant-hero">
-          <div class="hero-glow"></div>
-          <div class="hero-content">
-            <img
-              *ngIf="menuService.menuData()?.restaurant?.logo_url"
-              [src]="menuService.menuData()?.restaurant?.logo_url"
-              [alt]="menuService.menuData()?.restaurant?.name"
-              class="restaurant-logo"
-            />
-            <div class="restaurant-info">
-              <span class="welcome-badge">🔥 ¡Menú Digital Disponible!</span>
-              <h1>{{ menuService.menuData()?.restaurant?.name }}</h1>
-              <p class="tagline">
-                Selecciona tus platillos favoritos y ordena directo por WhatsApp
-              </p>
-            </div>
-          </div>
-        </header>
-
-        <!-- Category Tabs Bar -->
-        <nav class="categories-bar">
-          <div class="categories-scroll">
-            <button
-              *ngFor="let cat of menuService.menuData()?.categories; let first = first"
-              [class.active]="activeCategoryId === cat.id || (first && !activeCategoryId)"
-              (click)="scrollToCategory(cat.id)"
-              class="category-tab"
-            >
-              {{ cat.name }}
-            </button>
-          </div>
-        </nav>
-
-        <!-- Main Products Grid View -->
-        <main class="menu-main">
-          <section
-            *ngFor="let cat of menuService.menuData()?.categories"
-            [id]="cat.id"
-            class="category-section"
-          >
-            <div class="category-header">
-              <h2 class="category-title">{{ cat.name }}</h2>
-              <span class="category-count">{{ cat.products.length }} delicias</span>
-            </div>
-
-            <div class="products-grid">
-              <article *ngFor="let product of cat.products" class="product-card">
-                <div class="product-img-wrapper" *ngIf="product.image_url">
-                  <img
-                    [src]="product.image_url"
-                    (error)="onImageError($event)"
-                    [alt]="product.name"
-                    loading="lazy"
-                  />
-                  <span class="flavor-tag">Popular 🌶️</span>
-                </div>
-
-                <div class="product-details">
-                  <div class="product-info-top">
-                    <div class="product-title-row">
-                      <h3 class="product-title">{{ product.name }}</h3>
-                      <span class="product-price">&#36;{{ product.price | number: '1.2-2' }}</span>
-                    </div>
-
-                    <p class="product-description" *ngIf="product.description">
-                      {{ product.description }}
-                    </p>
-                  </div>
-
-                  <div class="product-actions">
-                    <button class="add-btn" (click)="handleProductClick(product)">
-                      <span>+ Añadir al Pedido</span>
-                    </button>
-                  </div>
-                </div>
-              </article>
-            </div>
-          </section>
-        </main>
-
-        <!-- Floating Cart Bar -->
-        <div *ngIf="cartService.totalItemsCount() > 0" class="floating-cart-bar">
-          <div class="cart-summary" (click)="isCartOpen = true">
-            <div class="cart-badge">
-              <span>{{ cartService.totalItemsCount() }}</span>
-            </div>
-            <div class="cart-text">
-              <span class="view-cart-label">Tu Carrito</span>
-              <span class="cart-total"
-                >&#36;{{ cartService.subtotal() | number: '1.2-2' }} MXN</span
-              >
-            </div>
-          </div>
-          <button class="checkout-action-btn" (click)="isCartOpen = true">
-            <span>Completar Pedido</span>
-            <span class="arrow-icon">➔</span>
-          </button>
-        </div>
-
-        <!-- MODAL DE PERSONALIZACIÓN DE MODIFICADORES -->
-        <div *ngIf="isModalOpen" class="modal-overlay" (click)="closeModifiersModal()">
-          <div class="modal-content" (click)="$event.stopPropagation()">
-            <div class="modal-header">
-              <div>
-                <h3>Personaliza tu platillo</h3>
-                <p class="modal-product-name">{{ selectedProduct?.name }}</p>
-              </div>
-              <button class="close-modal-btn" (click)="closeModifiersModal()">✕</button>
-            </div>
-
-            <div class="modal-body">
-              <div
-                *ngFor="let group of selectedProduct?.modifier_groups"
-                class="modifier-group-box"
-              >
-                <div class="group-info-header">
-                  <h4 class="group-title">{{ group.name }}</h4>
-                  <span class="group-badge" [class.required-badge]="group.is_required">
-                    {{ group.is_required ? 'Obligatorio' : 'Opcional' }} (Máx.
-                    {{ group.max_selection }})
-                  </span>
-                </div>
-
-                <div class="options-container">
-                  <div *ngFor="let option of group.options" class="option-row">
-                    <label class="option-label-wrapper">
-                      <!-- Selección Única (Radio) si el grupo permite máximo 1 opción -->
-                      <input
-                        *ngIf="group.max_selection === 1"
-                        type="radio"
-                        [name]="group.id"
-                        [checked]="isOptionSelected(option.id)"
-                        (click)="selectRadioOption(group, option)"
-                      />
-
-                      <!-- Selección Múltiple (Checkbox) si permite más de 1 opción -->
-                      <input
-                        *ngIf="group.max_selection > 1"
-                        type="checkbox"
-                        [checked]="isOptionSelected(option.id)"
-                        (change)="toggleCheckboxOption(group, option)"
-                        [disabled]="!isOptionSelected(option.id) && isGroupSelectionFull(group)"
-                      />
-
-                      <span class="option-text-name">{{ option.name }}</span>
-                    </label>
-                    <span class="option-price-extra" *ngIf="option.price_extra > 0">
-                      +&#36;{{ option.price_extra | number: '1.2-2' }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Notas adicionales del platillo -->
-              <div class="modal-notes-section">
-                <label class="notes-label">Instrucciones especiales para cocina</label>
-                <textarea
-                  [(ngModel)]="productNotes"
-                  placeholder="Ej. Sin cebolla, aderezos aparte, salsa bien picosa..."
-                  rows="2"
-                >
-                </textarea>
-              </div>
-            </div>
-
-            <div class="modal-footer">
-              <div class="modal-price-summary">
-                <span class="total-label">Total Platillo:</span>
-                <span class="calculated-price"
-                  >&#36;{{ calculatedItemPrice() | number: '1.2-2' }} MXN
-                </span>
-              </div>
-              <button
-                class="confirm-add-btn"
-                [disabled]="!isModalSelectionValid()"
-                (click)="confirmModifiersAndAddToCart()"
-              >
-                Agregar al Pedido
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <app-cart-drawer
-          [isOpen]="isCartOpen"
-          [restaurant]="menuService.menuData()?.restaurant || null"
-          (close)="isCartOpen = false"
-        >
-        </app-cart-drawer>
-      </div>
-    </div>
-  `,
-  styles: [
-    `
-      /* 
-    PSICOLOGÍA DEL COLOR APLICADA:
-    - Rojo Carmesí/Coral (#e11d48, #f43f5e): Estimula el apetito y la frecuencia cardíaca (impulso de compra).
-    - Ámbar Cálido (#f59e0b, #d97706): Despierta sensaciones de sabor, tostado artesanal y calidad.
-    - Fondo Cálido Marmolado (#fafaf9): Higiénico pero acogedor, evita la frialdad estéril del blanco puro.
-  */
-
-      .menu-container {
-        min-height: 100vh;
-        background-color: #fafaf9;
-        color: #1c1917;
-        font-family:
-          'Plus Jakarta Sans',
-          system-ui,
-          -apple-system,
-          sans-serif;
-        padding-bottom: 110px;
-      }
-
-      .loading-state {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        min-height: 60vh;
-        color: #78716c;
-      }
-
-      .spinner {
-        width: 44px;
-        height: 44px;
-        border: 4px solid #e7e5e4;
-        border-top-color: #e11d48;
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-        margin-bottom: 1rem;
-      }
-
-      /* Hero Banner-Gradiente Cálido Profundo con destellos ámbar */
-      .restaurant-hero {
-        position: relative;
-        background: linear-gradient(135deg, #1c1917 0%, #2e1014 45%, #431407 100%);
-        color: #ffffff;
-        padding: 3.25rem 1.5rem 2.75rem;
-        border-bottom-left-radius: 32px;
-        border-bottom-right-radius: 32px;
-        box-shadow: 0 14px 35px rgba(67, 20, 7, 0.25);
-        overflow: hidden;
-        -webkit-mask-image: -webkit-radial-gradient(white, black);
-        transform: translateZ(0);
-      }
-
-      .hero-glow {
-        position: absolute;
-        top: -50px;
-        right: -50px;
-        width: 250px;
-        height: 250px;
-        background: radial-gradient(circle, rgba(245, 158, 11, 0.25) 0%, rgba(0, 0, 0, 0) 70%);
-        pointer-events: none;
-      }
-
-      .hero-content {
-        max-width: 960px;
-        margin: 0 auto;
-        display: flex;
-        align-items: center;
-        gap: 1.85rem;
-        position: relative;
-        z-index: 10;
-      }
-
-      .restaurant-logo {
-        width: 105px;
-        height: 105px;
-        border-radius: 26px;
-        object-fit: cover;
-        border: 3.5px solid rgba(253, 230, 138, 0.4);
-        box-shadow: 0 10px 25px rgba(245, 158, 11, 0.3);
-        flex-shrink: 0;
-      }
-
-      .restaurant-info {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-      }
-
-      .welcome-badge {
-        display: inline-block;
-        align-self: flex-start;
-        background: rgba(225, 29, 72, 0.2);
-        border: 1px solid rgba(244, 63, 94, 0.4);
-        color: #fecdd3;
-        font-size: 0.78rem;
-        font-weight: 700;
-        padding: 0.25rem 0.75rem;
-        border-radius: 20px;
-        margin-bottom: 0.5rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-      }
-
-      .restaurant-info h1 {
-        margin: 0;
-        font-size: 2.35rem;
-        font-weight: 800;
-        letter-spacing: -0.5px;
-        line-height: 1.15;
-        background: linear-gradient(135deg, #ffffff 0%, #fef3c7 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-      }
-
-      .tagline {
-        margin: 0.45rem 0 0;
-        color: #d6d3d1;
-        font-size: 1rem;
-        font-weight: 500;
-      }
-
-      /* Navbar Categorías Sticky */
-      .categories-bar {
-        position: sticky;
-        top: 0;
-        z-index: 100;
-        background: rgba(250, 250, 249, 0.95);
-        backdrop-filter: blur(14px);
-        border-bottom: 1px solid #e7e5e4;
-        padding: 0.9rem 1rem;
-        margin-bottom: 2.25rem;
-        box-shadow: 0 4px 15px rgba(28, 25, 23, 0.04);
-      }
-
-      .categories-scroll {
-        max-width: 960px;
-        margin: 0 auto;
-        display: flex;
-        gap: 0.85rem;
-        overflow-x: auto;
-        scrollbar-width: none;
-      }
-
-      .categories-scroll::-webkit-scrollbar {
-        display: none;
-      }
-
-      .category-tab {
-        white-space: nowrap;
-        padding: 0.7rem 1.35rem;
-        border-radius: 26px;
-        border: 1.5px solid #e7e5e4;
-        background: #ffffff;
-        color: #57534e;
-        font-size: 0.92rem;
-        font-weight: 700;
-        cursor: pointer;
-        transition: all 0.22s ease;
-      }
-
-      .category-tab:hover {
-        border-color: #f43f5e;
-        color: #e11d48;
-      }
-
-      .category-tab.active {
-        background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
-        color: #ffffff;
-        border-color: #e11d48;
-        box-shadow: 0 6px 18px rgba(225, 29, 72, 0.35);
-      }
-
-      /* Main Grid Layout & Distribution */
-      .menu-main {
-        max-width: 960px;
-        margin: 0 auto;
-        padding: 0 1.25rem;
-      }
-
-      .category-section {
-        margin-bottom: 3.25rem;
-        scroll-margin-top: 95px;
-      }
-
-      .category-header {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        margin-bottom: 1.35rem;
-        padding-bottom: 0.65rem;
-        border-bottom: 2.5px solid #f59e0b;
-      }
-
-      .category-title {
-        font-size: 1.5rem;
-        font-weight: 800;
-        color: #1c1917;
-        margin: 0;
-        letter-spacing: -0.3px;
-      }
-
-      .category-count {
-        font-size: 0.85rem;
-        color: #78716c;
-        font-weight: 700;
-      }
-
-      .products-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-        gap: 1.6rem;
-      }
-
-      .product-card {
-        background: #ffffff;
-        border-radius: 22px;
-        overflow: hidden;
-        -webkit-mask-image: -webkit-radial-gradient(white, black);
-        transform: translateZ(0);
-        box-shadow: 0 6px 20px rgba(28, 25, 23, 0.06);
-        border: 1px solid #e7e5e4;
-        display: flex;
-        flex-direction: column;
-        transition:
-          transform 0.25s ease,
-          box-shadow 0.25s ease;
-      }
-
-      .product-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 14px 30px rgba(225, 29, 72, 0.12);
-        border-color: #fecdd3;
-      }
-
-      .product-img-wrapper {
-        width: 100%;
-        height: 185px;
-        overflow: hidden;
-        position: relative;
-        border-top-left-radius: 22px;
-        border-top-right-radius: 22px;
-        -webkit-mask-image: -webkit-radial-gradient(white, black);
-      }
-
-      .product-img-wrapper img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        transition: transform 0.4s ease;
-      }
-
-      .product-card:hover .product-img-wrapper img {
-        transform: scale(1.06);
-      }
-
-      .flavor-tag {
-        position: absolute;
-        top: 12px;
-        right: 12px;
-        background: rgba(28, 25, 23, 0.75);
-        backdrop-filter: blur(8px);
-        color: #fef08a;
-        font-size: 0.72rem;
-        font-weight: 800;
-        padding: 0.25rem 0.6rem;
-        border-radius: 14px;
-        border: 1px solid rgba(254, 240, 138, 0.3);
-      }
-
-      .product-details {
-        padding: 1.35rem;
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        gap: 1.1rem;
-      }
-
-      .product-info-top {
-        display: flex;
-        flex-direction: column;
-        gap: 0.55rem;
-      }
-
-      .product-title-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 0.75rem;
-      }
-
-      .product-title {
-        margin: 0;
-        font-size: 1.12rem;
-        font-weight: 800;
-        color: #1c1917;
-        line-height: 1.3;
-      }
-
-      /* Precio con estilo Ámbar Dorado Llamativo */
-      .product-price {
-        background: #fffbe6;
-        color: #b45309;
-        font-weight: 800;
-        font-size: 1.05rem;
-        padding: 0.35rem 0.75rem;
-        border-radius: 12px;
-        border: 1px solid #fde68a;
-        white-space: nowrap;
-        box-shadow: 0 2px 6px rgba(245, 158, 11, 0.15);
-      }
-
-      .product-description {
-        margin: 0;
-        font-size: 0.88rem;
-        color: #78716c;
-        line-height: 1.5;
-        display: -webkit-box;
-        -webkit-line-clamp: 3;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-      }
-
-      .product-actions {
-        display: flex;
-        justify-content: flex-end;
-        align-items: center;
-      }
-
-      /* Botón CTA de Alta Conversión en Rojo Carmesí */
-      .add-btn {
-        width: 100%;
-        background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
-        color: #ffffff;
-        border: none;
-        padding: 0.75rem 1.25rem;
-        border-radius: 14px;
-        font-size: 0.95rem;
-        font-weight: 800;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.4rem;
-        transition: all 0.2s ease;
-        box-shadow: 0 6px 16px rgba(225, 29, 72, 0.3);
-      }
-
-      .add-btn:hover {
-        background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);
-        transform: translateY(-2px);
-        box-shadow: 0 8px 22px rgba(225, 29, 72, 0.45);
-      }
-
-      /* Barra Flotante del Carrito en Carmesí y Oscuro Premium */
-      .floating-cart-bar {
-        position: fixed;
-        bottom: 24px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: calc(100% - 32px);
-        max-width: 500px;
-        background: linear-gradient(135deg, #1c1917 0%, #2e1014 100%);
-        color: #ffffff;
-        border-radius: 22px;
-        padding: 0.9rem 1.4rem;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        box-shadow: 0 18px 45px rgba(225, 29, 72, 0.35);
-        border: 1px solid rgba(244, 63, 94, 0.3);
-        z-index: 900;
-        animation: popUp 0.25s ease-out;
-      }
-
-      .cart-summary {
-        display: flex;
-        align-items: center;
-        gap: 0.95rem;
-        cursor: pointer;
-      }
-
-      .cart-badge {
-        background: #e11d48;
-        color: #ffffff;
-        font-weight: 800;
-        width: 38px;
-        height: 38px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1rem;
-        box-shadow: 0 4px 12px rgba(225, 29, 72, 0.4);
-      }
-
-      .cart-text {
-        display: flex;
-        flex-direction: column;
-      }
-
-      .view-cart-label {
-        font-size: 0.72rem;
-        color: #fecdd3;
-        text-transform: uppercase;
-        letter-spacing: 0.6px;
-        font-weight: 800;
-      }
-
-      .cart-total {
-        font-weight: 800;
-        font-size: 1.1rem;
-        color: #ffffff;
-      }
-
-      .checkout-action-btn {
-        background: linear-gradient(135deg, #25d366 0%, #16a34a 100%);
-        color: #ffffff;
-        border: none;
-        padding: 0.7rem 1.35rem;
-        border-radius: 14px;
-        font-weight: 800;
-        font-size: 0.95rem;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 0.55rem;
-        box-shadow: 0 6px 16px rgba(37, 211, 102, 0.35);
-        transition: transform 0.15s;
-      }
-
-      .checkout-action-btn:hover {
-        transform: scale(1.03);
-      }
-
-      @media (max-width: 640px) {
-        .restaurant-hero {
-          padding: 2.5rem 1rem 2.25rem;
-        }
-
-        .hero-content {
-          flex-direction: column;
-          text-align: center;
-          gap: 1rem;
-        }
-
-        .welcome-badge {
-          align-self: center;
-        }
-
-        .restaurant-logo {
-          width: 90px;
-          height: 90px;
-        }
-
-        .restaurant-info h1 {
-          font-size: 1.85rem;
-        }
-
-        .products-grid {
-          grid-template-columns: 1fr;
-        }
-      }
-
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
-      @keyframes popUp {
-        from {
-          transform: translate(-50%, 40px);
-          opacity: 0;
-        }
-        to {
-          transform: translate(-50%, 0);
-          opacity: 1;
-        }
-      }
-
-      .modal-overlay {
-        position: fixed;
-        inset: 0;
-        background: rgba(15, 23, 42, 0.7);
-        backdrop-filter: blur(4px);
-        z-index: 1100;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 1rem;
-      }
-
-      .modal-content {
-        background: #ffffff;
-        width: 100%;
-        max-width: 500px;
-        max-height: 85vh;
-        border-radius: 16px;
-        display: flex;
-        flex-direction: column;
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15);
-        overflow: hidden;
-        animation: modalScaleUp 0.2s ease-out;
-      }
-
-      @keyframes modalScaleUp {
-        from {
-          transform: scale(0.95);
-          opacity: 0;
-        }
-        to {
-          transform: scale(1);
-          opacity: 1;
-        }
-      }
-
-      .modal-header {
-        padding: 1.25rem 1.5rem;
-        background: #f8fafc;
-        border-bottom: 1px solid #e2e8f0;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-      }
-
-      .modal-header h3 {
-        margin: 0;
-        font-size: 1.25rem;
-        color: #0f172a;
-      }
-
-      .modal-product-name {
-        margin: 0.25rem 0 0 0;
-        font-size: 0.95rem;
-        color: #64748b;
-        font-weight: 500;
-      }
-
-      .close-modal-btn {
-        background: transparent;
-        border: none;
-        font-size: 1.25rem;
-        color: #64748b;
-        cursor: pointer;
-      }
-
-      .modal-body {
-        padding: 1.5rem;
-        overflow-y: auto;
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: 1.5rem;
-      }
-
-      .modifier-group-box {
-        background: #f8fafc;
-        padding: 1rem;
-        border-radius: 12px;
-        border: 1px solid #f1f5f9;
-      }
-
-      .group-info-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 0.75rem;
-      }
-
-      .group-title {
-        margin: 0;
-        font-size: 1rem;
-        color: #0f172a;
-        font-weight: 600;
-      }
-
-      .group-badge {
-        font-size: 0.75rem;
-        padding: 0.25rem 0.5rem;
-        background: #e2e8f0;
-        border-radius: 6px;
-        color: #475569;
-      }
-
-      .required-badge {
-        background: #fee2e2;
-        color: #ef4444;
-        font-weight: 600;
-      }
-
-      .options-container {
-        display: flex;
-        flex-direction: column;
-        gap: 0.65rem;
-      }
-
-      .option-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.25rem 0;
-      }
-
-      .option-label-wrapper {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        cursor: pointer;
-        font-size: 0.95rem;
-        color: #334155;
-      }
-
-      .option-price-extra {
-        font-size: 0.9rem;
-        color: #16a34a;
-        font-weight: 500;
-      }
-
-      .modal-notes-section {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-      }
-
-      .notes-label {
-        font-size: 0.9rem;
-        font-weight: 600;
-        color: #334155;
-      }
-
-      .modal-notes-section textarea {
-        width: 100%;
-        border: 1px solid #cbd5e1;
-        border-radius: 8px;
-        padding: 0.5rem;
-        font-family: inherit;
-        resize: none;
-      }
-
-      .modal-footer {
-        padding: 1.25rem 1.5rem;
-        border-top: 1px solid #e2e8f0;
-        background: #f8fafc;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-      }
-
-      .modal-price-summary {
-        display: flex;
-        flex-direction: column;
-      }
-
-      .total-label {
-        font-size: 0.8rem;
-        color: #64748b;
-        font-weight: 500;
-      }
-
-      .calculated-price {
-        font-size: 1.25rem;
-        font-weight: 700;
-        color: #0f172a;
-      }
-
-      .confirm-add-btn {
-        background: #ef4444;
-        color: #ffffff;
-        border: none;
-        padding: 0.75rem 1.5rem;
-        border-radius: 10px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: background 0.2s;
-      }
-
-      .confirm-add-btn:disabled {
-        background: #cbd5e1;
-        cursor: not-allowed;
-      }
-    `,
-  ],
+  templateUrl: "./menu.component.html",
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: "./menu.component.css",
 })
 export class MenuComponent implements OnInit {
   menuService = inject(MenuService);
@@ -911,7 +33,7 @@ export class MenuComponent implements OnInit {
   route = inject(ActivatedRoute);
 
   isCartOpen = false;
-  activeCategoryId = '';
+  activeCategoryId = "";
 
   // PROPIEDADES REACTIVAS DE CONTROL PARA EL MODAL
   isModalOpen = false;
@@ -924,20 +46,23 @@ export class MenuComponent implements OnInit {
   set selectedProduct(product: Product | null) {
     this.selectedProductState.set(product);
   }
-  productNotes = '';
+  productNotes = "";
   selectedModifiersList = signal<SelectedModifier[]>([]);
 
   // Señal computada para recalcular en tiempo real el precio del platillo en el modal
   calculatedItemPrice = computed(() => {
     if (!this.selectedProduct) return 0;
     const base = this.selectedProduct.price;
-    const extra = this.selectedModifiersList().reduce((sum, m) => sum + m.price_extra, 0);
+    const extra = this.selectedModifiersList().reduce(
+      (sum, m) => sum + m.price_extra,
+      0,
+    );
     return base + extra;
   });
 
   ngOnInit(): void {
     this.route.params.subscribe((params) => {
-      const slug = params['slug'] || 'tacos-el-pastor';
+      const slug = params["slug"] || "tacos-el-pastor";
       this.menuService.loadMenuBySlug(slug);
     });
   }
@@ -946,7 +71,7 @@ export class MenuComponent implements OnInit {
     this.activeCategoryId = catId;
     const el = document.getElementById(catId);
     if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
+      el.scrollIntoView({ behavior: "smooth" });
     }
   }
 
@@ -956,12 +81,16 @@ export class MenuComponent implements OnInit {
   handleProductClick(product: Product): void {
     if (product.modifier_groups && product.modifier_groups.length > 0) {
       this.selectedProduct = product;
-      this.productNotes = '';
+      this.productNotes = "";
       this.selectedModifiersList.set([]); // Limpiar selecciones previas
 
       // Auto-seleccionar la primera opción para grupos requeridos de selección única
       product.modifier_groups.forEach((group) => {
-        if (group.is_required && group.max_selection === 1 && group.options.length > 0) {
+        if (
+          group.is_required &&
+          group.max_selection === 1 &&
+          group.options.length > 0
+        ) {
           this.selectRadioOption(group, group.options[0]);
         }
       });
@@ -978,7 +107,9 @@ export class MenuComponent implements OnInit {
   }
 
   isOptionSelected(optionId: string): boolean {
-    return this.selectedModifiersList().some((m) => m.modifier_option_id === optionId);
+    return this.selectedModifiersList().some(
+      (m) => m.modifier_option_id === optionId,
+    );
   }
 
   /**
@@ -1051,7 +182,10 @@ export class MenuComponent implements OnInit {
       ).length;
 
       if (group.is_required) {
-        return selectionsCount >= group.min_selection && selectionsCount <= group.max_selection;
+        return (
+          selectionsCount >= group.min_selection &&
+          selectionsCount <= group.max_selection
+        );
       }
       return selectionsCount <= group.max_selection;
     });
@@ -1075,7 +209,7 @@ export class MenuComponent implements OnInit {
   onImageError(event: Event): void {
     const target = event.target as HTMLImageElement;
     if (target) {
-      target.style.display = 'none';
+      target.style.display = "none";
     }
   }
 }

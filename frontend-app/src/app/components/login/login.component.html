@@ -1,0 +1,54 @@
+<div class="login-container">
+  <div class="glass-card">
+    <div class="brand-header">
+      <span class="brand-logo">⚡</span>
+      <h1>GastroLink</h1>
+      <p class="subtitle">Acceso Administrativo para Restaurantes</p>
+    </div>
+
+    <form (ngSubmit)="onLogin()" class="login-form">
+      @if (errorMessage) {
+        <div class="error-banner">⚠️ {{ errorMessage }}</div>
+      }
+
+      <div class="form-group">
+        <label>Correo Electrónico</label>
+        <input
+          type="email"
+          [(ngModel)]="email"
+          name="email"
+          autocomplete="username"
+          placeholder="restaurante@ejemplo.com"
+          required
+        />
+      </div>
+
+      <div class="form-group">
+        <label>Contraseña</label>
+        <input
+          type="password"
+          [(ngModel)]="password"
+          name="password"
+          autocomplete="current-password"
+          placeholder="••••••••"
+          required
+        />
+      </div>
+
+      <button type="submit" class="submit-btn" [disabled]="loading">
+        @if (!loading) {
+          <span>Ingresar al Panel Admin</span>
+        }
+        @if (loading) {
+          <span>Validando...</span>
+        }
+      </button>
+    </form>
+
+    <div class="card-footer">
+      <a href="/menu/tacos-el-pastor" class="back-link"
+        >← Volver al Menú Público</a
+      >
+    </div>
+  </div>
+</div>

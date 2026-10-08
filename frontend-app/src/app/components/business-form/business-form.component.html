@@ -1,0 +1,110 @@
+<main class="business-page">
+  <header>
+    <div>
+      <span class="brand">GastroLink</span>
+      <h1>{{ businessId ? "Editar negocio" : "Crear negocio" }}</h1>
+    </div>
+    <a routerLink="/admin/businesses">Volver a negocios</a>
+  </header>
+  @if (error()) {
+    <p class="notice" role="alert">{{ error() }}</p>
+  }
+  @if (loading()) {
+    <p>Cargando negocio…</p>
+  }
+  @if (!loading() && ready()) {
+    <form #form="ngForm" (ngSubmit)="save()">
+      <fieldset [disabled]="saving()">
+        <label
+          >Nombre
+          <input name="name" [(ngModel)]="draft.name" required maxlength="100"
+        /></label>
+        <label
+          >Slug
+          <input
+            name="slug"
+            [(ngModel)]="draft.slug"
+            required
+            maxlength="100"
+            pattern="[a-z0-9]+(-[a-z0-9]+)*"
+            placeholder="tacos-el-pastor"
+          /><small>Solo minúsculas, números y guiones.</small></label
+        >
+        <label
+          >WhatsApp
+          <input
+            name="whatsapp"
+            [(ngModel)]="draft.whatsapp_number"
+            required
+            maxlength="20"
+            placeholder="525512345678"
+        /></label>
+        <label
+          >URL del logo <input name="logo" [(ngModel)]="draft.logo_url"
+        /></label>
+        <label
+          >Costo de envío
+          <input
+            type="number"
+            name="deliveryFee"
+            [(ngModel)]="draft.delivery_fee"
+            required
+            min="0"
+            step="0.01"
+        /></label>
+        <label
+          >Pedido mínimo
+          <input
+            type="number"
+            name="minimumOrder"
+            [(ngModel)]="draft.minimum_order"
+            required
+            min="0"
+            step="0.01"
+        /></label>
+        <label class="check"
+          ><input
+            type="checkbox"
+            name="table"
+            [(ngModel)]="draft.allows_table_order"
+          />
+          Pedidos en mesa</label
+        >
+        <label class="check"
+          ><input
+            type="checkbox"
+            name="takeaway"
+            [(ngModel)]="draft.allows_takeaway"
+          />
+          Para llevar</label
+        >
+        <label class="check"
+          ><input
+            type="checkbox"
+            name="delivery"
+            [(ngModel)]="draft.allows_delivery"
+          />
+          A domicilio</label
+        >
+        <label class="check"
+          ><input type="checkbox" name="active" [(ngModel)]="draft.is_active" />
+          Negocio activo</label
+        >
+        @if (!businessId) {
+          <label
+            >Correo del dueño inicial
+            <input
+              type="email"
+              name="ownerEmail"
+              [(ngModel)]="ownerEmail"
+              required
+              email
+          /></label>
+        }
+        <button type="submit" [disabled]="form.invalid || saving()">
+          {{ saving() ? "Guardando…" : "Guardar negocio" }}
+        </button>
+      </fieldset>
+    </form>
+  }
+</main>

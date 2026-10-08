@@ -1,12 +1,13 @@
-import { Component, signal } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { Component, signal, ChangeDetectionStrategy } from "@angular/core";
+import { RouterOutlet } from "@angular/router";
 
 @Component({
-  selector: 'app-root',
+  selector: "app-root",
   imports: [RouterOutlet],
-  templateUrl: './app.html',
-  styleUrl: './app.css'
+  templateUrl: "./app.html",
+  changeDetection: ChangeDetectionStrategy.Eager,
+  styleUrl: "./app.css",
 })
 export class App {
-  protected readonly title = signal('frontend-app');
+  protected readonly title = signal("frontend-app");
 }

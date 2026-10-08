@@ -1,0 +1,191 @@
+@if (isOpen()) {
+<div class="drawer-overlay" (click)="close.emit()">
+  <div class="drawer-content" (click)="$event.stopPropagation()">
+    <!-- Header -->
+    <div class="drawer-header">
+      <div class="header-title">
+        <span class="cart-icon">🛒</span>
+        <div>
+          <h3>Tu Pedido</h3>
+          <p class="sub-text">
+            {{ cartService.totalItemsCount() }} productos seleccionados
+          </p>
+        </div>
+      </div>
+      <button class="close-btn" (click)="close.emit()">✕</button>
+    </div>
+    <!-- Body -->
+    <div class="drawer-body">
+      <!-- Item List -->
+      @if (cartService.items().length === 0) {
+      <div class="empty-cart">
+        <span class="empty-icon">🍽️</span>
+        <p>Tu carrito está vacío</p>
+      </div>
+      }
+      @if (cartService.items().length > 0) {
+      <div class="items-list">
+        @for (item of cartService.items(); track item) {
+        <div class="cart-item">
+          <div class="item-main-layout">
+            <div class="item-info">
+              <span class="item-name">{{ item.product.name }}</span>
+              <!-- CALCULA EL TOTAL DE LA LÍNEA: (Precio base + modificadores) * cantidad -->
+              <span class="item-price">${{
+                (item.product.price +
+                getModifiersSubtotal(item.selected_modifiers)) *
+                item.quantity | number: "1.2-2"
+                }}</span>
+            </div>
+            <!-- 🟢 LISTADO VISUAL DE MODIFICADORES SELECCIONADOS -->
+            @if (
+            item.selected_modifiers &&
+            item.selected_modifiers.length > 0
+            ) {
+            <div class="modifiers-list">
+              @for (mod of item.selected_modifiers; track mod) {
+              <div class="modifier-item">
+                └─ {{ mod.name }}
+                @if (mod.price_extra > 0) {
+                <span class="modifier-price">
+                  (+${{ mod.price_extra | number: "1.2-2" }})
+                </span>
+                }
+              </div>
+              }
+            </div>
+            }
+            <!-- Notas especiales -->
+            @if (item.notes) {
+            <div class="item-notes">
+              📝 <span>Nota: {{ item.notes }}</span>
+            </div>
+            }
+          </div>
+          <div class="item-controls">
+            <div class="qty-stepper">
+              <button (click)="
+                        cartService.updateQuantity(
+                          item.product.id,
+                          item.selected_modifiers,
+                          item.quantity - 1
+                        )
+                      ">
+                -
+              </button>
+              <span>{{ item.quantity }}</span>
+              <button (click)="
+                        cartService.updateQuantity(
+                          item.product.id,
+                          item.selected_modifiers,
+                          item.quantity + 1
+                        )
+                      ">
+                +
+              </button>
+            </div>
+            <button class="delete-btn" (click)="
+                      cartService.removeItem(
+                        item.product.id,
+                        item.selected_modifiers
+                      )
+                    " title="Eliminar">
+              🗑️
+            </button>
+          </div>
+        </div>
+        }
+        <!-- Modalidad de Servicio -->
+        <div class="service-selector">
+          <label class="section-label">Modalidad de Entrega</label>
+          <div class="service-tabs">
+            @if (restaurant()?.allows_table_order) {
+            <button [class.active]="cartService.serviceType() === 'table'"
+              (click)="cartService.setServiceType('table')">
+              🪑 En Mesa
+            </button>
+            }
+            @if (restaurant()?.allows_takeaway) {
+            <button [class.active]="cartService.serviceType() === 'takeaway'"
+              (click)="cartService.setServiceType('takeaway')">
+              🛍️ Para Llevar
+            </button>
+            }
+            @if (restaurant()?.allows_delivery) {
+            <button [class.active]="cartService.serviceType() === 'delivery'"
+              (click)="cartService.setServiceType('delivery')">
+              🛵 Domicilio
+            </button>
+            }
+          </div>
+        </div>
+        <!-- Formulario de Checkout -->
+        <div class="checkout-form">
+          <div class="form-group">
+            <label>Nombre Completo *</label>
+            <input type="text" [(ngModel)]="customerName" placeholder="Ej. Carlos Mendoza" required />
+          </div>
+          <div class="form-group">
+            <label>Teléfono WhatsApp *</label>
+            <input type="tel" [(ngModel)]="customerPhone" placeholder="Ej. 5512345678" required />
+          </div>
+          @if (cartService.serviceType() === "table") {
+          <div class="form-group">
+            <label>Número o Nombre de Mesa *</label>
+            <input type="text" [(ngModel)]="tableNumber" placeholder="Ej. Mesa 4 / Terraza" />
+          </div>
+          }
+          @if (cartService.serviceType() === "delivery") {
+          <div class="delivery-fields">
+            <div class="form-group">
+              <label>Ingresa dirección de entrega</label>
+              <input type="text" [(ngModel)]="deliveryAddress" placeholder="Calle, Número, Colonia" />
+            </div>
+            <div class="form-group">
+              <label>Referencias / Entrecalles</label>
+              <input type="text" [(ngModel)]="addressReferences" placeholder="Ej. Casa blanca con portón negro" />
+            </div>
+          </div>
+          }
+          <div class="form-group">
+            <label>Método de Pago</label>
+            <select [(ngModel)]="paymentMethod">
+              <option value="Efectivo">
+                Pago en efectivo
+              </option>
+              <option value="Transferencia">Transferencia SPEI</option>
+            </select>
+          </div>
+        </div>
+        <!-- Resumen Financiero -->
+        <div class="summary-card">
+          <div class="summary-row">
+            <span>Subtotal:</span>
+            <span>${{ cartService.subtotal() | number: "1.2-2" }}</span>
+          </div>
+          @if (cartService.serviceType() === "delivery") {
+          <div class="summary-row">
+            <span>Costo de Envío:</span>
+            <span>${{ cartService.deliveryFee() | number: "1.2-2" }}</span>
+          </div>
+          }
+          <div class="summary-row total-row">
+            <span>Total a Pagar:</span>
+            <span class="total-amount">${{ cartService.grandTotal() | number: "1.2-2" }} MXN</span>
+          </div>
+        </div>
+      </div>
+      }
+    </div>
+    <!-- Footer -->
+    @if (cartService.items().length > 0) {
+    <div class="drawer-footer">
+      <button class="whatsapp-btn" [disabled]="!isFormValid()" (click)="sendOrderViaWhatsApp()">
+        <span class="wa-icon">💬</span>
+        <span>Enviar Pedido por WhatsApp</span>
+      </button>
+    </div>
+    }
+  </div>
+</div>
+}

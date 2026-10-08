@@ -117,20 +117,20 @@ Esta tabla permite asignar usuarios a negocios y controlar qué negocio puede ad
 Implementar roles:
 
 ```typescript
-type UserRole = 'superadmin' | 'business_owner' | 'business_admin' | 'staff';
+type UserRole = "superadmin" | "business_owner" | "business_admin" | "staff";
 ```
 
 ### Permisos esperados
 
-| Acción | superadmin | business_owner | business_admin | staff |
-|---|---:|---:|---:|---:|
-| Crear negocios | Sí | No | No | No |
-| Editar cualquier negocio | Sí | No | No | No |
-| Editar su negocio | Sí | Sí | Sí | No |
-| Gestionar usuarios del negocio | Sí | Sí | No | No |
-| Gestionar menú | Sí | Sí | Sí | Opcional |
-| Ver pedidos | Sí | Sí | Sí | Sí |
-| Editar configuración de negocio | Sí | Sí | Opcional | No |
+| Acción                          | superadmin | business_owner | business_admin |    staff |
+| ------------------------------- | ---------: | -------------: | -------------: | -------: |
+| Crear negocios                  |         Sí |             No |             No |       No |
+| Editar cualquier negocio        |         Sí |             No |             No |       No |
+| Editar su negocio               |         Sí |             Sí |             Sí |       No |
+| Gestionar usuarios del negocio  |         Sí |             Sí |             No |       No |
+| Gestionar menú                  |         Sí |             Sí |             Sí | Opcional |
+| Ver pedidos                     |         Sí |             Sí |             Sí |       Sí |
+| Editar configuración de negocio |         Sí |             Sí |       Opcional |       No |
 
 ---
 
@@ -615,7 +615,7 @@ El panel administrativo debe ser reutilizable para cualquier negocio seleccionad
 
 ## Checklist de progreso
 
-Última revisión: **2026-10-07**. Revisados el frontend y el backend en `../backend-api`. La fase 1 está implementada en código y cuenta con **20 pruebas HTTP con Supabase simulado que pasan**. La migración está aplicada y las lecturas reales funcionan. El superadmin está configurado; falta validar login y operaciones administrativas; la fase 1 todavía no se considera terminada en el entorno real.
+Última revisión: **2026-10-07**. Revisados el frontend y el backend en `../backend-api`. La Fase 1 cuenta con **20 pruebas HTTP simuladas** y una validación de integración real en Supabase con usuarios y negocio temporales: login/JWT, roles, transacción, asociaciones, persistencia, constraints y limpieza pasaron. Sigue pendiente probar las credenciales del superadmin inicial y la creación de dueño nuevo por email. La fase 2 está implementada en el frontend: estado de sesión, rutas protegidas y panel contextual por negocio. Angular se actualizó a 22.2.1, CLI/Build 22.2.2 y TypeScript 6.0.3; el build de producción pasa con un aviso de presupuesto CSS del menú y las 9 pruebas frontend pasan. `npm audit` no reporta vulnerabilidades.
 
 Marcar `[x]` cuando el requisito esté implementado y verificado. Actualizar la fecha y las notas al revisar avances. Los elementos completados de la base actual no implican que ya exista aislamiento multi-negocio.
 
@@ -630,7 +630,7 @@ Marcar `[x]` cuando el requisito esté implementado y verificado. Actualizar la 
 - [x] Operaciones de productos y modificadores en `AdminService`, todavía sin contexto de negocio.
 - [x] Método de creación de categorías en `AdminService`.
 
-### Fase 1 — Backend multi-negocio (implementación probada; activación pendiente)
+### Fase 1 — Backend multi-negocio (integración probada; acceso de cuenta inicial pendiente)
 
 Conexión pública real comprobada con el .env raíz del backend: arranque correcto y respuestas HTTP 200 en /health, /api/restaurants y menú público. La clave existente es pública; administración requiere configurar la clave de servicio. La carga del .env ya no depende del directorio desde el que se inicie Python.
 
@@ -639,11 +639,11 @@ Conexión pública real comprobada con el .env raíz del backend: arranque corre
 - [x] Hacer que el login devuelva token, usuario y negocios asociados, sin acceso demo.
 - [x] Implementar `/api/auth/me` y `/api/me/businesses`.
 - [x] Implementar CRUD de negocios para superadmin.
-- [x] Implementar creación o reutilización del dueño y asociación al registrar un negocio. Negocio y asociación usan una función SQL transaccional; falta verificarla en Supabase real.
+- [x] Implementar creación o reutilización del dueño y asociación al registrar un negocio. La transacción y reutilización de dueño se probaron con datos temporales en Supabase; falta probar el camino de crear un dueño nuevo desde el endpoint.
 - [x] Implementar asignación y eliminación de usuarios de negocios.
 - [x] Implementar consulta del menú y actualización de configuración por `businessId`.
 - [x] Implementar CRUD de categorías, productos, grupos y opciones de modificadores por `businessId`.
-- [ ] Garantizar slugs únicos con minúsculas, números y guiones en la base real. Validación de formato en API y constraints SQL aplicados; falta probar duplicidad y formato contra la base real.
+- [x] Garantizar slugs únicos con minúsculas, números y guiones en la base real. API y base rechazaron slug duplicado (23505) y formato inválido (23514).
 - [x] Devolver solo productos disponibles y negocios activos en el menú público, verificado con datos simulados.
 - [x] Restringir `include_all=true` a usuarios autenticados con permiso sobre el negocio.
 - [x] Devolver una respuesta controlada para negocios inactivos o inexistentes.
@@ -652,36 +652,36 @@ Conexión pública real comprobada con el .env raíz del backend: arranque corre
 - [x] Configurar `SUPABASE_SECRET_KEY` (recomendado) o `SUPABASE_SERVICE_ROLE_KEY` solo en el backend y conservar `SUPABASE_KEY` como clave pública para el cliente de login. Nueva clave `sb_secret_...` cargada y conexión real a `restaurants` verificada el 2026-10-07, sin exponer credenciales.
 - [x] Aplicar la migración SQL y comprobar las tablas y campos nuevos en Supabase real.
 - [x] Verificar que la clave pública no pueda leer directamente restaurants, users, user_businesses ni products (rechazo 42501); la API con clave secreta conserva acceso al menú público.
-- [ ] Completar la verificación de constraints, triggers y creación transaccional con usuarios reales.
+- [x] Completar la verificación de constraints, triggers y creación transaccional con usuarios temporales reales; se verificaron el trigger de perfil Auth, `updated_at`, constraints de slug y asociación transaccional.
 - [x] Crear y confirmar el usuario inicial en Supabase Auth y promover su perfil activo a `superadmin`. Verificado el 2026-10-07: un usuario Auth confirmado y un perfil activo con rol `superadmin`, vinculados por ID.
-- [ ] Asignar los usuarios de negocio a sus negocios cuando se creen; el superadmin tiene acceso global sin necesitar una asociación.
-- [ ] Verificar login, permisos y persistencia con Supabase real.
+- [x] Asignar usuarios de negocio a sus negocios cuando se creen; se verificaron dueño y staff temporales. El superadmin tiene acceso global sin necesitar una asociación.
+- [x] Verificar login, permisos y persistencia con Supabase real mediante usuarios temporales superadmin, dueño y staff. No se cambió ni probó la contraseña del superadmin inicial.
 
 Comprobación de la base real del 2026-10-07 tras aplicar la migración: las siete tablas y sus campos nuevos están disponibles. `/health` y el menú público responden HTTP 200 usando la API. En esa revisión inicial, `users` y `user_businesses` estaban vacías. El usuario inicial y su rol superadmin se verificaron en la revisión posterior descrita abajo.
 
-La revisión inicial no encontró usuarios. La última revisión, después de crear el usuario desde Authentication, confirma un usuario de Auth con correo confirmado y su perfil activo `superadmin`. El trigger de creación del perfil funcionó. Sigue pendiente verificar login con credenciales reales, JWT y operaciones administrativas de escritura.
+La revisión inicial no encontró usuarios. La última revisión, después de crear el usuario desde Authentication, confirma un usuario de Auth con correo confirmado y su perfil activo `superadmin`. El trigger de creación del perfil funcionó. El **2026-10-07**, usuarios temporales verificaron login, JWT, permisos de superadmin/dueño/staff, asociación y persistencia mediante Supabase real; se eliminaron al terminar y se comprobó que no quedaron registros de prueba. La contraseña del superadmin inicial no se probó.
 
 Guía de instalación y contrato: `../backend-api/PHASE1.md`. Las rutas antiguas de escritura sin contexto se retiraron; el frontend necesita los ajustes de las fases 2 y 4. Los usuarios nuevos no reciben mensajes automáticos y deben completar el flujo de recuperación de contraseña/confirmación de Supabase Auth.
 
 Aviso de migración aportado por el usuario: planificar el cambio de claves heredadas `service_role` a claves secretas `sb_secret_...` para finales de 2026. El backend admite ambas y prioriza la nueva clave; ninguna sustituye el JWT de usuario.
 
-### Fase 2 — Autenticación, rutas y panel contextual
+### Fase 2 — Autenticación, rutas y panel contextual (implementada en código)
 
-- [ ] Guardar usuario completo, rol global, negocios disponibles y negocio seleccionado en `AuthService`.
-- [ ] Implementar `loadCurrentUser()`, `getCurrentUser()` y `getUserBusinesses()`.
-- [ ] Implementar `isSuperadmin()` y `canManageBusiness(businessId)`.
-- [ ] Adjuntar `Authorization: Bearer …` a las solicitudes protegidas.
-- [ ] Agregar controles de acceso por rol y negocio a las rutas administrativas.
-- [ ] Quitar el acceso con credenciales y token de demostración cuando falla el backend.
-- [ ] Agregar `/admin/businesses` y `/admin/businesses/new`.
-- [ ] Agregar `/admin/businesses/:businessId` y `/admin/businesses/:businessId/edit`.
-- [ ] Agregar `/admin/businesses/:businessId/menu` y `/admin/businesses/:businessId/settings`.
-- [ ] Mostrar el listado general de negocios al superadmin en `/admin`.
-- [ ] Redirigir al panel del negocio cuando el usuario tenga un solo negocio asignado.
-- [ ] Mostrar selector o listado cuando el usuario tenga varios negocios.
-- [ ] Recibir `businessId` desde la ruta y cargar el negocio correspondiente en `AdminComponent`.
-- [ ] Eliminar la carga fija de `tacos-el-pastor` del panel administrativo.
-- [ ] Hacer que resumen, menú, modificadores, configuración y QR correspondan al negocio seleccionado.
+- [x] Guardar usuario completo, rol global, negocios disponibles y negocio seleccionado en `AuthService`.
+- [x] Implementar `loadCurrentUser()`, `getCurrentUser()` y `getUserBusinesses()`.
+- [x] Implementar `isSuperadmin()` y `canManageBusiness(businessId)`.
+- [x] Adjuntar `Authorization: Bearer …` a las solicitudes protegidas.
+- [x] Agregar controles de acceso por rol y negocio a las rutas administrativas.
+- [x] Quitar el acceso con credenciales y token de demostración cuando falla el backend.
+- [x] Agregar `/admin/businesses` y `/admin/businesses/new`.
+- [x] Agregar `/admin/businesses/:businessId` y `/admin/businesses/:businessId/edit`.
+- [x] Agregar `/admin/businesses/:businessId/menu` y `/admin/businesses/:businessId/settings`.
+- [x] Mostrar el listado general de negocios al superadmin en `/admin`.
+- [x] Redirigir al panel del negocio cuando el usuario tenga un solo negocio asignado.
+- [x] Mostrar selector o listado cuando el usuario tenga varios negocios.
+- [x] Recibir `businessId` desde la ruta y cargar el negocio correspondiente en `AdminComponent`.
+- [x] Eliminar la carga fija de `tacos-el-pastor` del panel administrativo.
+- [x] Hacer que resumen, menú, modificadores, configuración y QR correspondan al negocio seleccionado.
 
 ### Fase 3 — Listado y formulario de negocios
 
@@ -729,7 +729,3 @@ Aviso de migración aportado por el usuario: planificar el cambio de claves here
 - [ ] Backend: crear categorías base según la plantilla seleccionada (por verificar).
 - [ ] Agregar asignación avanzada de usuarios.
 - [ ] Agregar módulo de pedidos.
-
-
-
-
