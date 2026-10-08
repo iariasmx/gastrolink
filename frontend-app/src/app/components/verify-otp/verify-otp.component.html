@@ -42,7 +42,6 @@
               (input)="onDigitInput($index, $event)"
               (keydown)="onDigitKeydown($index, $event)"
               [disabled]="loading()"
-              required
             />
           }
         </div>
@@ -50,7 +49,7 @@
         <button
           type="submit"
           class="submit-btn"
-          [disabled]="loading() || otpToken.length !== 6"
+          [disabled]="loading() || !otpComplete()"
         >
           @if (!loading()) {
             <span>Verificar código</span>

@@ -7,6 +7,7 @@ import {
   ViewChildren,
   QueryList,
   AfterViewInit,
+  computed,
 } from "@angular/core";
 import { FormsModule } from "@angular/forms";
 import { RouterModule, Router } from "@angular/router";
@@ -36,6 +37,7 @@ export class VerifyOtpComponent implements AfterViewInit {
   readonly resending = signal(false);
   readonly errorMessage = signal("");
   readonly successMessage = signal("");
+  readonly otpComplete = computed(() => this.digits().every((d) => !!d));
 
   private get otpToken(): string {
     return this.digits().join("");
@@ -59,10 +61,18 @@ export class VerifyOtpComponent implements AfterViewInit {
     if (rawValue.length >= 1) {
       newDigits[index] = rawValue.slice(-1);
       this.digits.set(newDigits);
+      queueMicrotask(() => {
+        const el = this.digitInputs?.toArray()[index];
+        if (el) el.nativeElement.value = newDigits[index];
+      });
       if (index < 5) this.focusInput(index + 1);
     } else {
       newDigits[index] = "";
       this.digits.set(newDigits);
+      queueMicrotask(() => {
+        const el = this.digitInputs?.toArray()[index];
+        if (el) el.nativeElement.value = "";
+      });
     }
 
     if (this.otpToken.length === 6) {
@@ -106,10 +116,16 @@ export class VerifyOtpComponent implements AfterViewInit {
     event.preventDefault();
     const text = event.clipboardData?.getData("text") ?? "";
     const digits = text.replace(/\D/g, "").slice(0, 6).split("");
-    const padded = [...digits, ...Array(6 - digits.length).fill("")];
+    const padded = [...digits, ...Array(Math.max(0, 6 - digits.length)).fill("")];
     this.digits.set(padded);
-    const nextIndex = Math.min(digits.length, 5);
-    this.focusInput(nextIndex);
+    queueMicrotask(() => {
+      const els = this.digitInputs?.toArray() ?? [];
+      padded.forEach((d, i) => {
+        if (els[i]) els[i].nativeElement.value = d;
+      });
+      const nextIndex = Math.min(digits.length, 5);
+      this.focusInput(nextIndex);
+    });
     if (this.otpToken.length === 6) {
       void this.onVerify();
     }

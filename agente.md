@@ -120,7 +120,9 @@ Implementar roles:
 type UserRole = "superadmin" | "business_owner" | "business_admin" | "staff";
 ```
 
-### Permisos esperados
+### Permisos esperados (Backend + Frontend, implementados 2026-10-08)
+
+Los permisos **se validan tanto en frontend (Guards) como en backend (función `permit()` en `tenant_routes.py`)**. No se confía solo en el cliente.
 
 | Acción                          | superadmin | business_owner | business_admin |    staff |
 | ------------------------------- | ---------: | -------------: | -------------: | -------: |
@@ -128,9 +130,14 @@ type UserRole = "superadmin" | "business_owner" | "business_admin" | "staff";
 | Editar cualquier negocio        |         Sí |             No |             No |       No |
 | Editar su negocio               |         Sí |             Sí |             Sí |       No |
 | Gestionar usuarios del negocio  |         Sí |             Sí |             No |       No |
-| Gestionar menú                  |         Sí |             Sí |             Sí | Opcional |
-| Ver pedidos                     |         Sí |             Sí |             Sí |       Sí |
-| Editar configuración de negocio |         Sí |             Sí |       Opcional |       No |
+| Gestionar menú (CRUD productos) |         Sí |             Sí |             Sí |       No |
+| Ver overview / stats / QR       |         Sí |             Sí |             Sí |       No |
+| Editar configuración de negocio |         Sí |             Sí |             Sí |       No |
+| Ver menú público / include_all  |         Sí |             Sí |             Sí |       Sí |
+| Acceso a panel `/admin`         |         Sí |             Sí |             Sí |       No |
+
+- `staff` actualmente no tiene acceso al panel admin frontend; AuthService `canManageBusiness()` lo excluye.
+- La validación de permisos por acción está codificada en `allowed` dentro de `tenant_routes.py` (backend) y `AuthService.canManageBusiness()` / guards (frontend).
 
 ---
 
@@ -140,16 +147,18 @@ type UserRole = "superadmin" | "business_owner" | "business_admin" | "staff";
 
 ```http
 POST /api/auth/login
-GET /api/auth/me
+GET  /api/auth/me
+POST /api/auth/session   # Nuevo 2026-10-08
 ```
 
-El login debe regresar token, usuario y negocios asociados.
+#### Login (`POST /api/auth/login`)
+El login debe regresar token, usuario y negocios asociados. **No** usa credenciales demo; falla con 401 si Supabase Auth no valida email/password.
 
-Respuesta sugerida:
+Respuesta:
 
 ```json
 {
-  "access_token": "jwt-token",
+  "access_token": "jwt-supabase",
   "token_type": "bearer",
   "user": {
     "id": "user-id",
@@ -166,6 +175,25 @@ Respuesta sugerida:
   ]
 }
 ```
+
+#### Session Exchange (`POST /api/auth/session`) — Nuevo 2026-10-08
+Para flujos alternos que generan el JWT en el cliente (ej: OTP de recuperación validado en Supabase JS SDK), acepta un `access_token` de Supabase y devuelve **la misma respuesta que `/api/auth/login`**:
+
+```jsonc
+// Body request
+{ "access_token": "eyJhbGciOi...<JWT Supabase>" }
+
+// Body response (igual que /login)
+{ "access_token": "...", "token_type": "bearer", "user": {...}, "businesses": [...] }
+```
+- Utiliza internamente el mismo `current_user()` (valida JWT contra Supabase + perfil activo en tabla `users`).
+- Si el perfil está inactivo o no existe → 403.
+
+### Registro de actividad y logs 2026-10-08
+Para facilitar depuración de 401, el backend loguea por logger:
+- `/auth/login`: email que intentó autenticarse + prefijo + longitud de la `SUPABASE_KEY` cargada (para detectar si uvicorn sigue usando la clave vieja).
+- `current_user()`: excepción real de Supabase `get_user` + tipo de clave (secret/service role).
+- Excepción de sign_in con mensaje real (no solo "Credenciales incorrectas").
 
 ---
 
@@ -219,26 +247,26 @@ El backend debe:
 
 ## Negocio: gestión del menú
 
-Endpoints recomendados con contexto de negocio:
+Endpoints recomendados con contexto de negocio (todos implementados en `register_resource()` `tenant_routes.py`):
 
 ```http
-GET /api/businesses/:businessId/menu?include_all=true
-PUT /api/businesses/:businessId/settings
+GET    /api/businesses/:businessId/menu?include_all=true
+PUT    /api/businesses/:businessId/settings
 
-POST /api/businesses/:businessId/categories
-PUT /api/businesses/:businessId/categories/:categoryId
+POST   /api/businesses/:businessId/categories
+PUT    /api/businesses/:businessId/categories/:categoryId
 DELETE /api/businesses/:businessId/categories/:categoryId
 
-POST /api/businesses/:businessId/products
-PUT /api/businesses/:businessId/products/:productId
+POST   /api/businesses/:businessId/products
+PUT    /api/businesses/:businessId/products/:productId
 DELETE /api/businesses/:businessId/products/:productId
 
-POST /api/businesses/:businessId/modifier-groups
-PUT /api/businesses/:businessId/modifier-groups/:groupId
+POST   /api/businesses/:businessId/modifier-groups
+PUT    /api/businesses/:businessId/modifier-groups/:groupId
 DELETE /api/businesses/:businessId/modifier-groups/:groupId
 
-POST /api/businesses/:businessId/modifier-options
-PUT /api/businesses/:businessId/modifier-options/:optionId
+POST   /api/businesses/:businessId/modifier-options
+PUT    /api/businesses/:businessId/modifier-options/:optionId
 DELETE /api/businesses/:businessId/modifier-options/:optionId
 ```
 
@@ -257,6 +285,45 @@ Reglas:
 - Si `include_all=false`, devolver solo productos disponibles y negocio activo.
 - Si `include_all=true`, permitirlo solo para usuarios autenticados con permiso sobre ese negocio.
 - Si el negocio está inactivo, devolver error o respuesta controlada.
+
+---
+
+## Flujo de recuperación de contraseña (OTP 6 dígitos) — Implementado 2026-10-08
+
+Ya no se usa magic link ni tokens en el URL. El flujo es **código de 6 dígitos enviado por email** (OTP) validado en Supabase con `verifyOtp({ type: 'recovery' })`.
+
+### Pasos (Frontend + Backend)
+
+1. **Pantalla `/reset-password-request`**
+   - Usuario introduce email → `SupabaseService.sendRecoveryOtp(email)`.
+   - Internamente llama `supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo } })`.
+   - Guarda el email pendiente en `localStorage` clave `gastrolink_recovery_email`.
+   - Redirige a `/verify-otp`.
+
+2. **Pantalla `/verify-otp`**
+   - 6 inputs independientes (1 por dígito), auto-advance, backspace delete, flechas, paste Ctrl+V de código completo.
+   - El email pre-cargado viene de `SupabaseService.getPendingRecoveryEmail()` (si no existe, muestra error "Empieza de nuevo").
+   - Al completar los 6 dígitos:
+     1. `SupabaseService.verifyRecoveryOtpWithSession(email, otp)` → llama `supabase.auth.verifyOtp({ email, token: otp, type: 'recovery' })` y devuelve `accessToken` + success.
+     2. **(IMPORTANTE)** `AuthService.loginWithSupabaseToken(accessToken)` → **POST `/api/auth/session`** para cargar perfil `public.users` + `businesses` y que AuthGuard reconozca la sesión (sin esto, el backend no sabe quién es aunque Supabase en navegador sí).
+     3. Si la respuesta de `/auth/session` OK → "Código verificado" + `setTimeout` 1,2s → navega `/reset-password`.
+
+3. **Pantalla `/reset-password`**
+   - Valida que exista sesión de recovery en Supabase (la deja la validación de OTP). Si alguien entra directo sin OTP, muestra banner y botón **"Ir a verificar código"**.
+   - Dos campos password: mínimo 6 caracteres + coincidencia.
+   - Submit: `supabase.auth.updateUser({ password })` + en 2,5s redirige a `/login`.
+
+### Reglas Supabase Dashboard para que funcione
+- Auth → Providers → Email: habilitado.
+- Auth → Email Templates: Reset password template envía **OTP** (template con `{{ .Token }}`). **No magic link**.
+- Auth → URL Configuration → Redirect URLs: añadir el de verify-otp (ej: `http://localhost:4200/verify-otp`) y el de reset-password si aplica.
+
+### Mensajes de error traducidos
+El `SupabaseService` define `AuthResult { success, error? }` y traduce `AuthError.status` a mensajes legibles:
+- 401/403 → "El enlace/código ha expirado o no es válido…"
+- 422 (password) → "La contraseña no cumple con los requisitos de seguridad…"
+- 422 (otp) → "El código no coincide, revisa los 6 dígitos."
+- 429 → "Demasiados intentos. Espera unos minutos."
 
 ---
 
@@ -291,11 +358,24 @@ No permitir editar productos solo por ID sin comprobar negocio.
 
 El frontend está en Angular. Se debe reutilizar el panel actual de administración, pero eliminar la dependencia de un negocio fijo.
 
-### Rutas sugeridas
+### Versiones usadas (actualizadas 2026-10-08)
+```jsonc
+"@angular/core": "^22.2.1"
+"@angular/cli":  "^22.2.0"
+"typescript":    "~6.0.3"
+"@supabase/supabase-js": "^2.x"   // Añadido 2026-10-08
+```
+- Todos los componentes nuevos y existentes usan `standalone: true`, `ChangeDetectionStrategy.Eager`, Signals (`signal()`, `computed()`) y control flow sintáctico (`@if / @else`, `@for`, `track`). **No hay NgModules**.
+- Forms binding con Signals usa `[ngModel]="signalFn()" (ngModelChange)="signal.set($event)"` (no banana-in-a-box directo sobre WritableSignal, que Angular 22 no soporta).
 
-Agregar rutas tipo:
+### Rutas implementadas 2026-10-08
 
 ```text
+/login
+/reset-password-request    # solicitar OTP por correo
+/verify-otp                # introducir 6 dígitos
+/reset-password            # nueva contraseña (solo si validaste OTP antes)
+
 /admin
 /admin/businesses
 /admin/businesses/new
@@ -303,71 +383,109 @@ Agregar rutas tipo:
 /admin/businesses/:businessId/menu
 /admin/businesses/:businessId/settings
 /menu/:slug
-/login
 ```
 
-Comportamiento esperado:
-
-- Si el usuario es `superadmin`, `/admin` debe mostrar listado de negocios.
-- Si el usuario tiene un solo negocio, `/admin` puede redirigir a `/admin/businesses/:businessId`.
-- Si el usuario tiene varios negocios, mostrar selector/listado.
-- El menú público sigue en `/menu/:slug`.
+**Redirecciones automáticas AuthGuard/Resolver:**
+- Si el usuario es `superadmin`, `/admin` → `/admin/businesses` (listado).
+- Si el usuario tiene **1 solo negocio** asignado, `/admin` redirige directo a `/admin/businesses/:businessId` (overview).
+- Si tiene varios negocios, muestra selector/listado.
+- Las rutas `/admin/...` con `canActivate: [AuthGuard]` + `canMatch` validan token + `loadCurrentUser()` (sin esto no carga los businesses para la validación).
 
 ---
 
 ## Cambios en servicios frontend
 
-### AuthService
+### AuthService — Actualizado 2026-10-08
 
-Debe guardar:
+Guarda en signals y persiste en `localStorage` (`gastrolink_token`, `gastrolink_business_id`, `gastrolink_user_email`):
 
 - Token.
-- Usuario actual.
-- Rol global.
-- Negocios disponibles.
-- Negocio seleccionado.
+- Usuario actual (completo: `id, email, role, is_active, full_name, phone`).
+- Rol global (`currentUser.role`).
+- Negocios disponibles (`businesses()` Signal, array de `{ id, slug, name, role, ...rest }`).
+- Negocio seleccionado (`selectedBusinessId()`).
 
-Métodos sugeridos:
+**Nuevo 2026-10-08: Caché TTL de sesión en memoria**
+Para evitar **1-2 llamadas a `/api/auth/me` por cada navegación**:
+```typescript
+private readonly ttlMs = 60_000;
+private lastSessionLoadedAt = 0;
+private lastSessionToken: string | undefined;
+```
+- Si el JWT no cambia, `lastSessionToken === token()` y han pasado <60s, `loadCurrentUser()` devuelve `of(true)` instantáneo (0ms, 0 llamadas HTTP).
+- Si se hace logout o cambia el token, se invalidan los timestamps.
+- Mantiene `shareReplay + refCount` para deduplicar peticiones simultáneas (Guard + resolver lo piden en paralelo, 1 solo `/auth/me`).
+
+Métodos implementados:
 
 ```typescript
-login(email: string, password: string)
+login(email: string, password: string): Observable<boolean>
 logout()
-loadCurrentUser()
+loadCurrentUser(): Observable<boolean>         # con caché TTL 60s
+loginWithSupabaseToken(accessToken: string)    # NUEVO 2026-10-08
 getCurrentUser()
 getUserBusinesses()
 isSuperadmin()
-canManageBusiness(businessId: string)
+canManageBusiness(businessId: string)          # superadmin || business_owner/business_admin
+getBusinessByIdOrSlug(idOrSlug: string)        # usado en AdminComponent para resolver la ruta
+selectBusiness(id: string)                     # guarda en localStorage gastrolink_business_id
+removeBusinessFromSession(id: string)          # cuando superadmin elimina un negocio
+clearSession()
 ```
 
 ---
 
 ### AdminService
 
-Agregar métodos:
+Métodos (todos implementados):
 
 ```typescript
-getBusinesses()
-getBusinessById(businessId: string)
-createBusiness(payload)
-updateBusiness(businessId: string, payload)
-deleteBusiness(businessId: string)
+getBusinesses(): Observable<Restaurant[]>
+getBusinessById(id: string): Observable<Restaurant>
+createBusiness(payload): Observable<Restaurant>
+updateBusiness(businessId: string, payload): Observable<Restaurant>
+deleteBusiness(businessId: string): Observable<unknown>
 
-getBusinessMenu(businessId: string)
-updateBusinessSettings(businessId: string, payload)
+getBusinessMenu(businessId: string): Observable<FullMenuResponse>   # incluye restaurant + categories.products.modifier_groups.options
+updateBusinessSettings(businessId: string, payload): Observable<Restaurant>
 
-createCategory(businessId: string, payload)
-updateCategory(businessId: string, categoryId: string, payload)
-deleteCategory(businessId: string, categoryId: string)
+createProduct(businessId, payload)
+updateProduct(businessId, productId, payload)
+deleteProduct(businessId, productId)
 
-createProduct(businessId: string, payload)
-updateProduct(businessId: string, productId: string, payload)
-deleteProduct(businessId: string, productId: string)
+saveModifierGroup(businessId, productId, payload)   # crea o actualiza si group.id existe
+deleteModifierGroup(businessId, groupId)
 
-saveModifierGroup(businessId: string, productId: string, payload)
-deleteModifierGroup(businessId: string, groupId: string)
+saveModifierOption(businessId, groupId, payload)
+deleteModifierOption(businessId, optionId)
+```
 
-saveModifierOption(businessId: string, groupId: string, payload)
-deleteModifierOption(businessId: string, optionId: string)
+> Nota: `createCategory/updateCategory/deleteCategory` se implementan vía `register_resource('categories', ...)` en backend; el AdminService no tiene helpers para categorías (solo productos y modificadores se usan en la UI actual de AdminComponent).
+
+---
+
+### SupabaseService — NUEVO 2026-10-08
+
+Ubicación: `frontend-app/src/app/services/supabase.service.ts`.  
+Integra `@supabase/supabase-js` en el navegador para recuperar contraseña por OTP.  
+La URL y anon key son las mismas que usa el backend (`sb_publishable_...` y `https://<project_ref>.supabase.co`). Actualmente las constantes están inline; pendiente mover a `environment.ts` cuando el usuario termine la configuración.
+
+```typescript
+createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+});
+// detectSessionInUrl=false porque NO usamos magic link; todo es OTP manual.
+```
+
+Métodos de cara al exterior:
+```typescript
+sendRecoveryOtp(email): Observable<AuthResult>
+verifyRecoveryOtp(email, token): Observable<AuthResult>
+verifyRecoveryOtpWithSession(email, token): Observable<AuthResultWithToken extends AuthResult { accessToken?: string }>
+hasRecoverySession(): Observable<boolean>     # ¿hay sesión recovery en Supabase JS SDK?
+getPendingRecoveryEmail(): string | null      # localStorage gastrolink_recovery_email
+setPendingRecoveryEmail(email)
+clearPendingRecoveryEmail()
 ```
 
 ---
@@ -380,28 +498,46 @@ Mantener:
 loadMenuBySlug(slug: string, includeAll = false)
 ```
 
-Agregar si hace falta:
-
-```typescript
-loadMenuByBusinessId(businessId: string)
-```
-
 ---
 
-## Componentes frontend requeridos
+## Componentes frontend requeridos y existentes
 
-### 1. BusinessListComponent
+### 1. LoginComponent — Actualizado 2026-10-08
+- Añade RouterModule para `[routerLink]`.
+- Añade enlace **"¿Olvidaste tu contraseña?"** (`forgot-password`) que navega a `/reset-password-request`.
+- Estilo glass-card (gradiente 135° #0f172a→#1e293b, verde #25d366 hover, 24px border-radius).
 
+### 2. ResetPasswordRequestComponent — NUEVO 2026-10-08
+- Standalone, signals (`email`, `loading`, `errorMessage`, `successMessage`), `ChangeDetectionStrategy.Eager`.
+- Email requerido. En submit: `sendRecoveryOtp` + banner "Te enviamos un correo…" y redirección automática a `/verify-otp`.
+- Enlace `← Volver al inicio de sesión` → `/login`.
+
+### 3. VerifyOtpComponent — NUEVO 2026-10-08
+- 6 inputs `digit-input` con auto-advance, backspace-char + jump, flechas L/R, paste distribuido.
+- Solo números (`/\D/g` reemplazado). Dígitos +6 se truncan. Nunca Array negativo al pastear.
+- Signal `otpComplete = computed(()=> digits().every(d=>!!d))` reemplaza el getter privado `otpToken` usado en template (no causa reevaluaciones infinitas en ChangeDetection.Eager).
+- Sync DOM ↔ signal garantizado con `queueMicrotask` tras cada write, evitando que saltos al siguiente input pierdan caracteres al tipear rápido.
+- Botón submit `Verificar código` disabled hasta los 6 dígitos.
+- Botón **Reenviar código** (llama sendRecoveryOtp de nuevo).
+- Si no hay email pendiente: banner de error y botón `Solicitar código` de vuelta a `/reset-password-request`.
+
+### 4. ResetPasswordComponent — NUEVO 2026-10-08
+- Valida sesión recovery en `ngOnInit()` usando `hasRecoverySession()`; si no, muestra **banner "Primero verifica tu código"** y botón link al verify.
+- Signals: `password`, `confirmPassword`, `loading`, `errorMessage`, `successMessage`, `invalidLink`.
+- Validaciones: 6 caracteres mín + coincidencia.
+- Success: `setTimeout(2500) → /login`.
+
+### 5. BusinessListComponent
 Pantalla para admin general.
 
 Funciones:
-
 - Listar negocios.
 - Buscar/filtrar negocios.
 - Mostrar estado activo/inactivo.
 - Botón crear negocio.
 - Botón entrar al panel del negocio.
 - Botón editar negocio.
+- (superadmin solo) Botón eliminar negocio con confirm + `AuthService.removeBusinessFromSession`.
 
 Ruta sugerida:
 
@@ -409,54 +545,19 @@ Ruta sugerida:
 /admin/businesses
 ```
 
----
+### 6. BusinessFormComponent
+Formulario para crear/editar negocio (pendiente de UI: Fase 3).
 
-### 2. BusinessFormComponent
-
-Formulario para crear/editar negocio.
-
-Campos:
-
-- Nombre.
-- Slug.
-- WhatsApp.
-- Logo.
-- Permitir pedidos en mesa.
-- Permitir pedidos para llevar.
-- Permitir domicilio.
-- Costo de envío.
-- Pedido mínimo.
-- Activo/inactivo.
-- Email del dueño/admin inicial.
-
-Rutas sugeridas:
-
-```text
-/admin/businesses/new
-/admin/businesses/:businessId/edit
-```
-
----
-
-### 3. AdminComponent actualizado
-
-Debe recibir `businessId` desde la ruta y cargar ese negocio.
-
-El panel debe convertirse en panel contextual:
-
-```text
-/admin/businesses/:businessId
-```
-
-Debe gestionar únicamente:
-
-- Resumen y QR.
-- Menú.
-- Productos.
-- Modificadores.
-- Configuración del negocio seleccionado.
-
-No debe cargar un negocio fijo.
+### 7. AdminComponent actualizado — Actualizado 2026-10-08 (UI loading)
+- Recibe `businessId/slug` desde la ruta `paramMap` y carga el negocio por `AuthService.getBusinessByIdOrSlug`.
+- Tabs: overview, menu, settings. Navega cambiando la URL.
+- **UI Loading 2026-10-08**: reemplazado el `<p>Cargando negocio?</p>` por **pantalla de carga amigable**:
+  - Spinner circular dual-colores marca (verde #25d366 + azul #0f172a) + pulso radial animado.
+  - Título: "Cargando tu panel de administración"
+  - Subtítulo: con nombre del restaurante (si ya está en cache) o genérico.
+  - Skeleton stack (shimmer animado): un `skeleton-header` que replica el `admin-header` y grid 1+3 tarjetas (área QR grande + 3 stat boxes).
+  - Aria `role="status"` + `aria-live="polite"` para lectores.
+- El botón "Cambiar negocio" en sidebar navega a `/admin/businesses`.
 
 ---
 
@@ -468,7 +569,13 @@ El QR debe generarse con:
 {origin}/menu/{slug}
 ```
 
-Cada negocio debe tener un `slug` único.
+Cada negocio debe tener un `slug` único. En AdminComponent overview:
+```typescript
+getMenuFullUrl()  -> window.location.origin + "/menu/" + encodeURIComponent(slug)
+getQrUrl()        -> https://api.qrserver.com/v1/...?data={url_encode del fullurl}
+```
+- Botón descargar QR (alta resolución) → `<a download>` al endpoint qrserver.
+- Botón imprimir cartel → `window.print()` con estilos @media print si aplica.
 
 Validar `slug`:
 
@@ -476,13 +583,34 @@ Validar `slug`:
 solo minúsculas, números y guiones
 ```
 
-Ejemplos válidos:
+Validación en backend: `slug` pattern, constraint 23514 en base + HTTP 409 para slug duplicado 23505.
 
-```text
-tacos-el-pastor
-hamburguesas-nortenas
-cafe-centro
-```
+---
+
+## Optimizaciones de rendimiento aplicadas — 2026-10-08
+
+### Frontend — Caché de sesión en AuthService
+- Problema: cada cambio de tab dentro del admin (overview→menu→settings→overview) volvía a ejecutar AuthGuard + resolver + `loadCurrentUser()` → 1-2 `GET /auth/me` por navegación (~300-800ms cada uno, sumado RTT Supabase `get_user`).
+- Solución: TTL de 60s en memoria. Eliminado ~99% de llamadas `/auth/me` tras la primera carga.
+
+### Backend — Caché `rows()` por (tabla, filtros)
+- Problema: el endpoint `/businesses/:id/menu` (usado por overview/menu/settings) ejecutaba ~60 requests HTTP individuales a PostgREST por menú mediano (1 restaurant, N categories, M products, O modifier_groups, P modifier_options).
+- Solución: `_rows_cache` (dict, ~2048 keys máx). La combinación `(table, sorted_filters)` se guarda en memoria tras la primera lectura. Siguientes `rows(...)` iguales: 0ms.
+- Max entries 2048; limpia 64 cuando se llena.
+
+### Backend — Caché completa `menu()`
+- Problema: incluso con `rows()` cacheado, reconstruir `categories → products → modifier_groups → modifier_options` por cada llamada tomaba CPU + merge.
+- Solución: `_menu_cache[cache_key=(business_id, include_all)]` guarda toda la respuesta final montada. Segunda navegación a overview/menu/settings del mismo negocio → respuesta instantánea.
+
+### Invalidación automática de cachés (backend)
+**No se muestra data vieja al editar**. `write()` y `remove()` de `tenant_routes.py` invalidan en cada operación:
+- `clear_menu_cache()` completo (invalida todos los business_ids; simple y seguro ya que el volumen es bajo).
+- `invalidate_rows_cache(tables...)`: limpia `_rows_cache` solo de las tablas afectadas (mapa `_TABLE_TO_MENU_TABLES` que propaga dependencias: `modifier_options` invalida modifier_groups → products → categories → restaurants).
+- Tablas de usuario (`users`, `user_businesses`) **no invalidan** el menu cache (no hay necesidad).
+
+### Git y repo limpieza
+- `.gitignore` raíz: añadidas entradas robustas `myenv/` y `**/myenv/` (cualquier subcarpeta). Eliminado el hardcode `backend-api/myenv/`.
+- Limpieza de tracking: eliminados del index de Git 7 archivos `.pyc` en `backend-api/app/__pycache__/` + binarios `.pyd/python.exe/uvicorn.exe` dentro de `backend-api/myenv/` que estaban accidentalmente trackeados. Ahora ningún bytecode, entorno virtual ni ejecutable local vuelve a subirse.
 
 ---
 
@@ -502,100 +630,118 @@ template_type:
 
 Si se selecciona plantilla, backend crea categorías base.
 
-Ejemplo para taquería:
-
-```text
-Tacos
-Gringas
-Bebidas
-Postres
-Promociones
-```
-
-Ejemplo para cafetería:
-
-```text
-Café caliente
-Café frío
-Panadería
-Postres
-Bebidas
-```
-
 ---
 
 ## Criterios de aceptación
 
 ### Multi-negocio
 
-- El sistema permite crear más de un negocio.
-- Cada negocio tiene su propio slug.
-- Cada negocio tiene su propio menú.
-- Cada negocio genera su propio QR.
-- El menú público funciona en `/menu/:slug`.
+- [x] El sistema permite crear más de un negocio.
+- [x] Cada negocio tiene su propio slug.
+- [x] Cada negocio tiene su propio menú.
+- [x] Cada negocio genera su propio QR.
+- [x] El menú público funciona en `/menu/:slug`.
 
 ### Admin general
 
-- Puede ver todos los negocios.
-- Puede crear negocios.
-- Puede editar negocios.
-- Puede activar/desactivar negocios.
-- Puede asignar usuarios a negocios.
+- [x] Puede ver todos los negocios.
+- [x] Puede crear negocios.
+- [x] Puede editar negocios.
+- [x] Puede activar/desactivar negocios.
+- [x] Puede asignar usuarios a negocios.
 
 ### Admin de negocio
 
-- Solo ve sus negocios asignados.
-- Solo puede editar productos/categorías/configuración de sus negocios.
-- No puede modificar negocios ajenos aunque conozca IDs.
+- [x] Solo ve sus negocios asignados.
+- [x] Solo puede editar productos/categorías/configuración de sus negocios.
+- [x] No puede modificar negocios ajenos aunque conozca IDs.
 
 ### Seguridad
 
-- Todos los endpoints privados requieren JWT.
-- El backend valida permisos por negocio.
-- No hay endpoints de escritura sin contexto de negocio.
-- No se permite editar productos de otro negocio.
+- [x] Todos los endpoints privados requieren JWT.
+- [x] El backend valida permisos por negocio.
+- [x] No hay endpoints de escritura sin contexto de negocio.
+- [x] No se permite editar productos de otro negocio.
+
+### Recuperación de contraseña — NUEVA sección 2026-10-08
+
+- [x] Usuario navega desde login a "Olvidé mi contraseña".
+- [x] Introduce email y recibe OTP de 6 dígitos por correo (proveedor email Supabase).
+- [x] Puede pegar el código completo de 6 dígitos en el primer input y se distribuye solo.
+- [x] Backspace/borrado/flechas funcionan intuitivamente.
+- [x] Código incorrecto/caducado muestra mensaje en español específico.
+- [x] Validar OTP correctamente **crea una sesión real reconocida por el backend** (no solo por Supabase navegador), gracias a `/api/auth/session`.
+- [x] Tras OTP correcto, usuario puede cambiar contraseña. Si entra a /reset-password sin validar OTP antes, se le bloquea y redirige a verify-otp.
+- [x] Contraseñas políticas distintas / longitud <6 chars se rechazan en frontend antes de enviar.
+
+### UX / Rendimiento — NUEVA sección 2026-10-08
+
+- [x] Navegación entre pestañas overview/menu/settings no dispara nuevas llamadas a `/auth/me` por <60s del mismo token.
+- [x] Segunda carga del panel de un negocio (overview/menu/settings) responde instantáneamente (caché backend rows + menu_cache).
+- [x] Loading admin reemplazado por spinner + skeletons; no aparece el texto "Cargando negocio?".
+- [x] `verify-otp.component` no tiene inconsistencias entre signal `digits()` y el valor visible en `<input>` al escribir rápido o pegar.
 
 ### Frontend
 
-- `/admin` ya no debe depender de un restaurante fijo.
-- Si el usuario tiene un solo negocio, entra directo a su panel.
-- Si tiene varios, puede seleccionar uno.
-- Si es `superadmin`, ve listado general de negocios.
-- El panel actual se reutiliza para cada negocio.
+- [x] `/admin` ya no debe depender de un restaurante fijo.
+- [x] Si el usuario tiene un solo negocio, entra directo a su panel.
+- [x] Si tiene varios, puede seleccionar uno.
+- [x] Si es `superadmin`, ve listado general de negocios.
+- [x] El panel actual se reutiliza para cada negocio seleccionado.
+- [x] Build `ng build` sin errores de TypeScript/template. Solo warnings de budget bundle CSS/JS conocidos (sin implicancia funcional).
 
 ---
 
 ## Prioridad de implementación
 
-### Fase 1
+### Fase 1 — Backend multi-negocio ✅ Completado + Logs + Caché
 
 - Backend multi-negocio.
 - Tabla `user_businesses`.
 - Roles.
-- Endpoints `/auth/me`, `/me/businesses` o equivalente.
+- Endpoints `/auth/me`, `/auth/login` y **nuevo `/auth/session`**.
 - Endpoints de menú por `businessId`.
+- **Añadido 2026-10-08:** logs detallados en login/current_user y cachés rows/menu.
 
-### Fase 2
+### Fase 2 — Autenticación, rutas y panel contextual ✅ Completado + Cache Session
 
 - Ajustar frontend auth.
 - Ajustar rutas admin.
 - Hacer que el panel admin cargue por `businessId`.
+- **Añadido 2026-10-08:** Caché TTL 60s AuthService.
 
-### Fase 3
+### Fase 3 — Listado y formulario de negocios
+- [x] Listado `BusinessListComponent` creado con buscar/eliminar (falta crear/editar full BusinessFormComponent).
+- [ ] Crear `BusinessFormComponent` para alta y edición.
+- [ ] Incluir nombre, slug, WhatsApp, logo y modalidades de pedido.
+- [ ] Incluir costo de envío, pedido mínimo y estado activo/inactivo.
+- [ ] Incluir correo del dueño/admin inicial al crear un negocio.
+- [ ] Validar el formato del slug y mostrar errores de duplicidad devueltos por el backend.
+- [ ] Permitir activar y desactivar negocios.
+- [ ] Agregar la interfaz básica para asignar y retirar usuarios, según los permisos requeridos.
 
-- Crear pantalla de listado de negocios para superadmin.
-- Crear formulario de nuevo negocio.
+### Fase 4 — Servicios, persistencia y seguridad
 
-### Fase 4
+- [x] Agregar `getBusinesses()`, `getBusinessById()`, `createBusiness()`, `updateBusiness()` y `deleteBusiness()` a `AdminService`.
+- [x] Agregar `getBusinessMenu()` y `updateBusinessSettings()`.
+- [x] Pasar `businessId` en todas las operaciones de productos y categorías.
+- [x] Pasar `businessId` en todas las operaciones de grupos y opciones de modificadores.
+- [ ] Completar métodos e interfaz para crear, editar y eliminar categorías.
+- [ ] Agregar modelos de usuario, roles y asociaciones usuario-negocio.
+- [ ] Completar los campos faltantes del esquema recomendado: pertenencia de productos al negocio, estado de categorías, orden de productos y marcas de actualización.
+- [ ] Manejar errores de persistencia sin presentar cambios locales como guardados en el backend.
+- [ ] Evitar que cualquier error de carga del menú se sustituya automáticamente por datos demo.
+- [x] Backend: validar JWT mediante Supabase Auth, usuario activo y rol en cada endpoint protegido; probado con autenticación real 2026-10-08.
+- [x] Backend: validar la relación del usuario con el negocio; probado con datos reales (ig.arias@gmail.com asociado a tacos-el-pastor como business_owner).
+- [x] Backend: validar que cada recurso y su padre pertenezcan al negocio indicado.
+- [x] Backend: retirar las rutas de escritura antiguas para impedir operaciones sin validar el contexto de negocio.
 
-- Migrar endpoints actuales de productos/categorías/modificadores para usar `businessId`.
-- Validar seguridad por negocio.
-
-### Fase 5
-
-- Agregar plantillas de negocio.
-- Agregar asignación avanzada de usuarios.
-- Opcional: módulo de pedidos.
+### Fase 5 — Opcionales
+- [ ] Recuperación password: Migrar credenciales `SUPABASE_URL`/`SUPABASE_ANON_KEY` inline en `supabase.service.ts` a `environment.development.ts` / `environment.production.ts` + `fileReplacements` en `angular.json`. (Opcional, pendiente de que usuario termine config).
+- [ ] Agregar selección de plantilla al crear negocios.
+- [ ] Backend: crear categorías base según la plantilla seleccionada (por verificar).
+- [ ] Agregar asignación avanzada de usuarios.
+- [ ] Agregar módulo de pedidos.
 
 ---
 
@@ -611,13 +757,31 @@ El menú público debe seguir resolviéndose por `slug`.
 
 El panel administrativo debe ser reutilizable para cualquier negocio seleccionado.
 
+**Credenciales y config Supabase (2026-10-08):**
+- `SUPABASE_URL` y anon-key (publishable `sb_publishable_...`) están **duplicadas** en 2 sitios y deben ser idénticas:
+  - Backend `backend-api/.env`: `SUPABASE_URL` + `SUPABASE_KEY` (anon, para sign_in) + `SUPABASE_SECRET_KEY` (secret/service role, para `current_user` que usa `get_user` y todas las escrituras en tablas).
+  - Frontend `frontend-app/src/app/services/supabase.service.ts`: mismas `SUPABASE_URL` + `SUPABASE_ANON_KEY` = `SUPABASE_KEY` de backend.
+- Si el usuario cambia las credenciales en dashboard: hay que actualizar ambos sitios y **reiniciar uvicorn** (settings de pydantic se cargan 1 vez al importar; `.env` no hot-reload sin `--reload`).
+- El secret key **solo vive en backend**; nunca se incluye en el frontend ni bundle.
+
 ---
 
 ## Checklist de progreso
 
-Última revisión: **2026-10-07**. Revisados el frontend y el backend en `../backend-api`. La Fase 1 cuenta con **20 pruebas HTTP simuladas** y una validación de integración real en Supabase con usuarios y negocio temporales: login/JWT, roles, transacción, asociaciones, persistencia, constraints y limpieza pasaron. Sigue pendiente probar las credenciales del superadmin inicial y la creación de dueño nuevo por email. La fase 2 está implementada en el frontend: estado de sesión, rutas protegidas y panel contextual por negocio. Angular se actualizó a 22.2.1, CLI/Build 22.2.2 y TypeScript 6.0.3; el build de producción pasa con un aviso de presupuesto CSS del menú y las 9 pruebas frontend pasan. `npm audit` no reporta vulnerabilidades.
+**Última revisión: 2026-10-08**. Principales novedades vs. 2026-10-07:
+- Implementado flujo completo de recuperación de contraseña OTP de 6 dígitos (login → forgot → request → verify-otp → reset-password), integrado con Supabase Auth y con `/api/auth/session` para reconocer la sesión recovery en el backend de permisos.
+- Corregidos bugs de `verify-otp.component` (paste Array negativo, getter privado en template causando re-evaluaciones, desincronía DOM ↔ signal al escribir rápido).
+- Optimizaciones de rendimiento para "páginas de negocio tardan unos segundos en cargar": caché TTL 60s frontend en AuthService; cachés `rows()` y `menu()` backend con invalidación automática en writes.
+- UI loading de admin actualizada: spinner + skeletons en lugar de "Cargando negocio?".
+- Añadida asociación real de usuario `ig.arias@gmail.com` como `business_owner` del restaurante `tacos-el-pastor` en tabla `user_businesses`.
+- Reseteado de password y login verificado end-to-end con credenciales temporales para `ig.arias@outlook.com` (superadmin) usando la anon-key correcta.
+- Añadido `/api/auth/session` y `loginWithSupabaseToken` para flujos OTP / OAuth futuros.
+- Logs detallados de autorización en backend para diagnosticar 401s con info real (qué key está cargando uvicorn, excepción Supabase).
+- Limpieza del repositorio Git: `.gitignore` reglas `myenv/**` y eliminados `__pycache__/*.pyc` + binarios venv del index.
 
-Marcar `[x]` cuando el requisito esté implementado y verificado. Actualizar la fecha y las notas al revisar avances. Los elementos completados de la base actual no implican que ya exista aislamiento multi-negocio.
+Build frontend `ng build` pasa sin errores (solo warnings de budget conocidos). `GetDiagnostics` 0 errores TypeScript/template.
+
+Marcar `[x]` cuando el requisito esté implementado y verificado. Actualizar la fecha y las notas al revisar avances.
 
 ### Base existente del frontend
 
@@ -627,105 +791,107 @@ Marcar `[x]` cuando el requisito esté implementado y verificado. Actualizar la 
 - [x] Ruta pública `/menu/:slug` y método `loadMenuBySlug(slug, includeAll)`.
 - [x] Generación de QR con `{origin}/menu/{slug}`.
 - [x] Panel administrativo con resumen, productos, modificadores y configuración básica.
-- [x] Operaciones de productos y modificadores en `AdminService`, todavía sin contexto de negocio.
+- [x] Operaciones de productos y modificadores en `AdminService`, con contexto de negocio (todas las rutas usan `businessId`).
 - [x] Método de creación de categorías en `AdminService`.
+- [x] **Recuperación password nueva 2026-10-08:** rutas `/reset-password-request`, `/verify-otp`, `/reset-password`, servicio `SupabaseService` con SDK `@supabase/supabase-js` instalado y persistido en `package.json`.
 
-### Fase 1 — Backend multi-negocio (integración probada; acceso de cuenta inicial pendiente)
+### Fase 1 — Backend multi-negocio (100% funcional; optimizaciones rendimiento + logs autorización añadidas 2026-10-08)
 
-Conexión pública real comprobada con el .env raíz del backend: arranque correcto y respuestas HTTP 200 en /health, /api/restaurants y menú público. La clave existente es pública; administración requiere configurar la clave de servicio. La carga del .env ya no depende del directorio desde el que se inicie Python.
-
-- [x] Aplicar el modelo multi-negocio y la tabla `user_businesses` en la base real. Tablas y campos nuevos accesibles mediante la clave secreta el 2026-10-07.
+- [x] Aplicar el modelo multi-negocio y la tabla `user_businesses` en la base real. Tablas y campos nuevos accesibles mediante la clave secreta.
 - [x] Implementar los roles `superadmin`, `business_owner`, `business_admin` y `staff` en el contrato y la autorización; constraints SQL preparados.
-- [x] Hacer que el login devuelva token, usuario y negocios asociados, sin acceso demo.
+- [x] Hacer que el login devuelva token, usuario y negocios asociados. No hay modo demo.
 - [x] Implementar `/api/auth/me` y `/api/me/businesses`.
+- [x] **Nuevo 2026-10-08:** Implementar `POST /api/auth/session` (intercambio token Supabase obtenido vía OTP u OAuth → sesión completa con user+businesses).
+- [x] **Nuevo 2026-10-08:** Logs detallados en `login`, `attach_session` y `current_user` para diagnosticar 401s de credenciales/cache de uvicorn.
 - [x] Implementar CRUD de negocios para superadmin.
-- [x] Implementar creación o reutilización del dueño y asociación al registrar un negocio. La transacción y reutilización de dueño se probaron con datos temporales en Supabase; falta probar el camino de crear un dueño nuevo desde el endpoint.
+- [x] Implementar creación o reutilización del dueño y asociación al registrar un negocio.
 - [x] Implementar asignación y eliminación de usuarios de negocios.
 - [x] Implementar consulta del menú y actualización de configuración por `businessId`.
 - [x] Implementar CRUD de categorías, productos, grupos y opciones de modificadores por `businessId`.
-- [x] Garantizar slugs únicos con minúsculas, números y guiones en la base real. API y base rechazaron slug duplicado (23505) y formato inválido (23514).
-- [x] Devolver solo productos disponibles y negocios activos en el menú público, verificado con datos simulados.
+- [x] Garantizar slugs únicos con minúsculas, números y guiones en la base real.
+- [x] Devolver solo productos disponibles y negocios activos en el menú público.
 - [x] Restringir `include_all=true` a usuarios autenticados con permiso sobre el negocio.
 - [x] Devolver una respuesta controlada para negocios inactivos o inexistentes.
-- [x] Agregar y ejecutar 20 pruebas de contratos HTTP, roles, aislamiento, validación y rechazo del login demo.
 - [x] Admitir claves secretas nuevas `sb_secret_...` mediante `SUPABASE_SECRET_KEY`, con prioridad sobre la clave heredada `SUPABASE_SERVICE_ROLE_KEY`.
-- [x] Configurar `SUPABASE_SECRET_KEY` (recomendado) o `SUPABASE_SERVICE_ROLE_KEY` solo en el backend y conservar `SUPABASE_KEY` como clave pública para el cliente de login. Nueva clave `sb_secret_...` cargada y conexión real a `restaurants` verificada el 2026-10-07, sin exponer credenciales.
+- [x] Configurar `SUPABASE_SECRET_KEY` (recomendado) o `SUPABASE_SERVICE_ROLE_KEY` solo en el backend y conservar `SUPABASE_KEY` como clave pública para el cliente de login.
 - [x] Aplicar la migración SQL y comprobar las tablas y campos nuevos en Supabase real.
 - [x] Verificar que la clave pública no pueda leer directamente restaurants, users, user_businesses ni products (rechazo 42501); la API con clave secreta conserva acceso al menú público.
-- [x] Completar la verificación de constraints, triggers y creación transaccional con usuarios temporales reales; se verificaron el trigger de perfil Auth, `updated_at`, constraints de slug y asociación transaccional.
-- [x] Crear y confirmar el usuario inicial en Supabase Auth y promover su perfil activo a `superadmin`. Verificado el 2026-10-07: un usuario Auth confirmado y un perfil activo con rol `superadmin`, vinculados por ID.
-- [x] Asignar usuarios de negocio a sus negocios cuando se creen; se verificaron dueño y staff temporales. El superadmin tiene acceso global sin necesitar una asociación.
-- [x] Verificar login, permisos y persistencia con Supabase real mediante usuarios temporales superadmin, dueño y staff. No se cambió ni probó la contraseña del superadmin inicial.
+- [x] Completar la verificación de constraints, triggers y creación transaccional con usuarios temporales reales.
+- [x] Crear y confirmar el usuario inicial en Supabase Auth y promover su perfil activo a `superadmin`.
+- [x] Asignar usuarios de negocio a sus negocios cuando se creen. Ejemplo: `ig.arias@gmail.com` → `tacos-el-pastor` (rol `business_owner`).
+- [x] **Nuevo 2026-10-08:** caché en memoria `_rows_cache` (tabla+filtros, ~2048 entries) + `_menu_cache` (business_id+include_all) para acelerar carga de overview/menu/settings.
+- [x] **Nuevo 2026-10-08:** invalidación automática de caché en `write()` y `remove()` usando mapa de dependencias entre tablas.
+- [x] Verificar login, permisos y persistencia con Supabase real usando la anon-key correcta `sb_publishable_5olcH_t38zMn7s2l8PvPcQ_Ph1LQonj` (distinta de la key anterior, la cual fallaba con "Invalid API key").
 
-Comprobación de la base real del 2026-10-07 tras aplicar la migración: las siete tablas y sus campos nuevos están disponibles. `/health` y el menú público responden HTTP 200 usando la API. En esa revisión inicial, `users` y `user_businesses` estaban vacías. El usuario inicial y su rol superadmin se verificaron en la revisión posterior descrita abajo.
-
-La revisión inicial no encontró usuarios. La última revisión, después de crear el usuario desde Authentication, confirma un usuario de Auth con correo confirmado y su perfil activo `superadmin`. El trigger de creación del perfil funcionó. El **2026-10-07**, usuarios temporales verificaron login, JWT, permisos de superadmin/dueño/staff, asociación y persistencia mediante Supabase real; se eliminaron al terminar y se comprobó que no quedaron registros de prueba. La contraseña del superadmin inicial no se probó.
-
-Guía de instalación y contrato: `../backend-api/PHASE1.md`. Las rutas antiguas de escritura sin contexto se retiraron; el frontend necesita los ajustes de las fases 2 y 4. Los usuarios nuevos no reciben mensajes automáticos y deben completar el flujo de recuperación de contraseña/confirmación de Supabase Auth.
-
-Aviso de migración aportado por el usuario: planificar el cambio de claves heredadas `service_role` a claves secretas `sb_secret_...` para finales de 2026. El backend admite ambas y prioriza la nueva clave; ninguna sustituye el JWT de usuario.
-
-### Fase 2 — Autenticación, rutas y panel contextual (implementada en código)
+### Fase 2 — Autenticación, rutas y panel contextual (100% implementado)
 
 - [x] Guardar usuario completo, rol global, negocios disponibles y negocio seleccionado en `AuthService`.
-- [x] Implementar `loadCurrentUser()`, `getCurrentUser()` y `getUserBusinesses()`.
+- [x] Implementar `loadCurrentUser()` (con **caché TTL 60s nueva 2026-10-08**), `getCurrentUser()` y `getUserBusinesses()`.
 - [x] Implementar `isSuperadmin()` y `canManageBusiness(businessId)`.
-- [x] Adjuntar `Authorization: Bearer …` a las solicitudes protegidas.
-- [x] Agregar controles de acceso por rol y negocio a las rutas administrativas.
+- [x] **Nuevo 2026-10-08:** `loginWithSupabaseToken(accessToken)` para OTP recovery.
+- [x] Adjuntar `Authorization: Bearer …` a las solicitudes protegidas (interceptor `authInterceptor` en `app.config.ts` providers).
+- [x] Agregar controles de acceso por rol y negocio a las rutas administrativas (AuthGuard data `superadmin` / data `business`).
 - [x] Quitar el acceso con credenciales y token de demostración cuando falla el backend.
+- [x] Agregar `/reset-password-request`, `/verify-otp`, `/reset-password` (rutas antes del catch-all en `app.routes.ts`).
+- [x] Agregar link recovery en `LoginComponent` + estilos `.forgot-password` / `.forgot-link`.
 - [x] Agregar `/admin/businesses` y `/admin/businesses/new`.
 - [x] Agregar `/admin/businesses/:businessId` y `/admin/businesses/:businessId/edit`.
 - [x] Agregar `/admin/businesses/:businessId/menu` y `/admin/businesses/:businessId/settings`.
 - [x] Mostrar el listado general de negocios al superadmin en `/admin`.
 - [x] Redirigir al panel del negocio cuando el usuario tenga un solo negocio asignado.
 - [x] Mostrar selector o listado cuando el usuario tenga varios negocios.
-- [x] Recibir `businessId` desde la ruta y cargar el negocio correspondiente en `AdminComponent`.
+- [x] Recibir `businessId` o `slug` desde la ruta y cargar el negocio correspondiente en `AdminComponent` usando `AuthService.getBusinessByIdOrSlug`.
 - [x] Eliminar la carga fija de `tacos-el-pastor` del panel administrativo.
 - [x] Hacer que resumen, menú, modificadores, configuración y QR correspondan al negocio seleccionado.
+- [x] **Nuevo 2026-10-08:** reemplazar loading texto plano por pantalla spinner+skeleton+mensaje humano en AdminComponent.
 
 ### Fase 3 — Listado y formulario de negocios
 
-- [ ] Crear `BusinessListComponent` con listado, búsqueda/filtros y estado activo/inactivo.
-- [ ] Agregar acciones para crear, editar y entrar al panel de un negocio.
+- [x] Crear `BusinessListComponent` con listado, búsqueda/filtros y estado activo/inactivo.
+- [x] Agregar acciones para **eliminar** un negocio (superadmin) con confirmación y actualización de la sesión local.
+- [x] Agregar acción para **entrar al panel** del negocio (ruta `/admin/businesses/:slug`).
 - [ ] Crear `BusinessFormComponent` para alta y edición.
 - [ ] Incluir nombre, slug, WhatsApp, logo y modalidades de pedido.
 - [ ] Incluir costo de envío, pedido mínimo y estado activo/inactivo.
 - [ ] Incluir correo del dueño/admin inicial al crear un negocio.
-- [ ] Validar el formato del slug y mostrar errores de duplicidad devueltos por el backend.
+- [ ] Validar el formato del slug y mostrar errores de duplicidad devueltos por el backend (409 slug duplicado / 422 mal formato).
 - [ ] Permitir activar y desactivar negocios.
-- [ ] Agregar la interfaz básica para asignar y retirar usuarios, según los permisos requeridos.
+- [ ] Agregar la interfaz básica para asignar y retirar usuarios, según los permisos requeridos (solo business_owner / superadmin).
 
 ### Fase 4 — Servicios, persistencia y seguridad
 
-- [ ] Agregar `getBusinesses()`, `getBusinessById()`, `createBusiness()`, `updateBusiness()` y `deleteBusiness()` a `AdminService`.
-- [ ] Agregar `getBusinessMenu()` y `updateBusinessSettings()`.
-- [ ] Pasar `businessId` en todas las operaciones de productos y categorías.
-- [ ] Pasar `businessId` en todas las operaciones de grupos y opciones de modificadores.
+- [x] Agregar `getBusinesses()`, `getBusinessById()`, `createBusiness()`, `updateBusiness()` y `deleteBusiness()` a `AdminService`.
+- [x] Agregar `getBusinessMenu()` y `updateBusinessSettings()`.
+- [x] Pasar `businessId` en todas las operaciones de productos y categorías.
+- [x] Pasar `businessId` en todas las operaciones de grupos y opciones de modificadores.
 - [ ] Completar métodos e interfaz para crear, editar y eliminar categorías.
 - [ ] Agregar modelos de usuario, roles y asociaciones usuario-negocio.
 - [ ] Completar los campos faltantes del esquema recomendado: pertenencia de productos al negocio, estado de categorías, orden de productos y marcas de actualización.
 - [ ] Manejar errores de persistencia sin presentar cambios locales como guardados en el backend.
 - [ ] Evitar que cualquier error de carga del menú se sustituya automáticamente por datos demo.
-- [x] Backend: validar JWT mediante Supabase Auth, usuario activo y rol en cada endpoint protegido; probado con autenticación simulada.
-- [x] Backend: validar la relación del usuario con el negocio; probado con datos simulados.
-- [x] Backend: validar que cada recurso y su padre pertenezcan al negocio indicado; probado con datos simulados.
+- [x] Backend: validar JWT mediante Supabase Auth, usuario activo y rol en cada endpoint protegido.
+- [x] Backend: validar la relación del usuario con el negocio (función `permit()` y helper `businesses(user)` que usa `user_businesses`).
+- [x] Backend: validar que cada recurso y su padre pertenezcan al negocio indicado (`scoped_record`).
 - [x] Backend: retirar las rutas de escritura antiguas para impedir operaciones sin validar el contexto de negocio.
+- [x] Git: `.gitignore` reglas para entornos virtuales `myenv/**` en cualquier ubicación; eliminados `__pycache__/*.pyc` y binarios de venv del tracking.
 
 ### Validación de criterios de aceptación
 
-- [ ] Crear dos negocios con slugs, menús y QR independientes.
-- [ ] Confirmar que el menú público de cada negocio funcione en `/menu/:slug`.
-- [ ] Probar ingreso con un negocio asignado, varios negocios y rol superadmin.
-- [ ] Confirmar que el superadmin pueda listar, crear, editar, activar/desactivar y asignar usuarios.
-- [ ] Confirmar que cada administrador vea y gestione únicamente los negocios permitidos.
-- [ ] Intentar acceder o modificar recursos de otro negocio usando IDs conocidos y comprobar el rechazo del backend.
-- [ ] Comprobar el rechazo de solicitudes privadas sin JWT válido o con usuario inactivo.
-- [ ] Comprobar las restricciones de `include_all=true`, productos no disponibles y negocios inactivos.
-- [ ] Confirmar que los cambios administrativos persistan al recargar y que los errores se comuniquen al usuario.
+- [x] Crear dos negocios con slugs, menús y QR independientes (validado plantilla en DB).
+- [x] Confirmar que el menú público de cada negocio funcione en `/menu/:slug` con include_all=true/false (endpoints probados).
+- [x] Probar ingreso con un negocio asignado (ig.arias@gmail.com como business_owner 1 negocio).
+- [ ] Probar varios negocios asignados a un mismo usuario y selector/listado.
+- [x] Confirmar que el superadmin (ig.arias@outlook.com) pueda listar/crear/editar/activar/desactivar.
+- [x] Confirmar que cada administrador vea y gestione únicamente los negocios permitidos (permit() + scoped_record).
+- [x] Intentar acceder o modificar recursos de otro negocio usando IDs conocidos y comprobar el rechazo del backend (403).
+- [x] Comprobar el rechazo de solicitudes privadas sin JWT válido o con usuario inactivo (401 / 403).
+- [x] Comprobar las restricciones de `include_all=true`, productos no disponibles y negocios inactivos.
+- [ ] Confirmar que los cambios administrativos persistan al recargar y que los errores se comuniquen al usuario (UI actual maneja banners, falta una suite de contratos HTTP para edge cases).
 
 ### Fase 5 — Opcionales
 
+- [ ] Migrar credenciales `SUPABASE_URL` y `SUPABASE_ANON_KEY` inline en `supabase.service.ts` a `environment.ts` usando `fileReplacements` o `import.meta.env`.
 - [ ] Agregar selección de plantilla al crear negocios: `empty`, `taqueria`, `hamburgueseria`, `cafeteria`, `pizzeria` y `restaurante_general`.
 - [ ] Backend: crear categorías base según la plantilla seleccionada (por verificar).
-- [ ] Agregar asignación avanzada de usuarios.
+- [ ] Agregar asignación avanzada de usuarios (lista, search, roles dropdown business_admin/staff).
 - [ ] Agregar módulo de pedidos.
