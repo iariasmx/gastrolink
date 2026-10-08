@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import List, Union
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -6,6 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     SUPABASE_URL: str = "https://your-supabase-project.supabase.co"
+    SUPABASE_SECRET_KEY: str = ""
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
     SUPABASE_KEY: str = "your-supabase-anon-key"
     CORS_ORIGINS: Union[str, List[str]] = ["http://localhost:4200", "http://127.0.0.1:4200"]
 
@@ -19,7 +22,8 @@ class Settings(BaseSettings):
         return ["http://localhost:4200", "http://127.0.0.1:4200"]
 
     model_config = SettingsConfigDict(
-        env_file=(".env", "app/.env", os.path.join(os.path.dirname(__file__), ".env"), os.path.join(os.path.dirname(__file__), "..", ".env")),
+        # Project .env takes precedence over legacy app/.env, independent of cwd.
+        env_file=(Path(__file__).resolve().parent / '.env', Path(__file__).resolve().parent.parent / '.env'),
         env_file_encoding="utf-8",
         extra="ignore"
     )
