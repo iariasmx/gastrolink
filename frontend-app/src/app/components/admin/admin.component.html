@@ -10,15 +10,20 @@
     </div>
 
     <nav class="sidebar-menu">
-      <a routerLink="/admin/businesses" class="preview-btn">? Cambiar negocio</a>
-      <button [class.active]="activeTab() === 'overview'" (click)="openTab('overview')">
-        📊 Resumen & Código QR
-      </button>
-      <button [class.active]="activeTab() === 'menu'" (click)="openTab('menu')">
-        🍽️ Gestión de Menú (CRUD)
-      </button>
-      <button [class.active]="activeTab() === 'settings'" (click)="openTab('settings')">
-        ⚙️ Configuración del Negocio
+      <a routerLink="/admin/businesses" class="preview-btn">Cambiar negocio</a>
+      @if (authService.canManageBusiness(businessId())) {
+        <button [class.active]="activeTab() === 'overview'" (click)="openTab('overview')">
+          📊 Resumen & Código QR
+        </button>
+        <button [class.active]="activeTab() === 'menu'" (click)="openTab('menu')">
+          🍽️ Gestión de Menú (CRUD)
+        </button>
+        <button [class.active]="activeTab() === 'settings'" (click)="openTab('settings')">
+          ⚙️ Configuración del Negocio
+        </button>
+      }
+      <button [class.active]="activeTab() === 'orders'" (click)="openTab('orders')">
+        🧾 Pedidos
       </button>
     </nav>
 
@@ -159,16 +164,45 @@
               platillos en tiempo real.
             </p>
           </div>
-          <button class="btn btn-success" (click)="openAddProductModal()">
+          <button class="btn btn-secondary" type="button" (click)="openNewCategory()">
+            + Nueva Categoría
+          </button>
+          <button class="btn btn-success" type="button" (click)="openAddProductModal()">
             + Nuevo Platillo
           </button>
         </div>
+        @if (showCategoryForm) {
+        <form class="category-edit-form" (ngSubmit)="saveCategory()">
+          <h4>{{ editingCategoryId ? "Editar categoría" : "Nueva categoría" }}</h4>
+          <div class="form-group">
+            <label>Nombre</label>
+            <input name="categoryName" [(ngModel)]="categoryName" maxlength="50" required />
+          </div>
+          <div class="form-group">
+            <label>Orden</label>
+            <input name="categorySortOrder" type="number" [(ngModel)]="categorySortOrder" min="0" step="1" required />
+          </div>
+          <label class="form-checkboxes">
+            <input name="categoryActive" type="checkbox" [(ngModel)]="categoryIsActive" />
+            Categoría activa en el menú público
+          </label>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" type="button" [disabled]="actionBusy()" (click)="cancelCategoryForm()">Cancelar</button>
+            <button class="btn btn-primary" type="submit" [disabled]="actionBusy()">{{ actionBusy() ? "Guardando…" : "Guardar categoría" }}</button>
+          </div>
+        </form>
+        }
         <!-- Categories List -->
         @for (cat of categories(); track cat) {
         <div class="crud-category-block">
           <div class="category-block-header">
-            <h4>{{ cat.name }}</h4>
+            <div>
+              <h4>{{ cat.name }}</h4>
+              <small>{{ cat.is_active ? "Activa" : "Oculta del menú público" }} · Orden {{ cat.sort_order }}</small>
+            </div>
             <span class="products-count">{{ cat.products.length }} productos</span>
+            <button type="button" class="btn-icon btn-edit" title="Editar categoría" [disabled]="actionBusy()" (click)="openEditCategory(cat)">✏️</button>
+            <button type="button" class="btn-icon btn-delete" title="Eliminar categoría y sus productos" [disabled]="actionBusy()" (click)="deleteCategory(cat)">🗑️</button>
           </div>
           <div class="crud-products-list">
             @for (prod of cat.products; track prod) {
@@ -227,9 +261,14 @@
             <label>Teléfono de WhatsApp (con clave de país)</label>
             <input type="text" [(ngModel)]="editWhatsapp" name="whatsapp" placeholder="Ej. 525512345678" required />
           </div>
-          <div class="form-group">
-            <label>URL del Logo</label>
-            <input type="text" [(ngModel)]="editLogo" name="logo" placeholder="https://..." />
+          <div class="form-group logo-upload-group">
+            <label for="business-logo-upload">Logo del negocio</label>
+            @if (restaurant()?.logo_url) {
+              <img class="settings-logo-preview" [src]="restaurant()?.logo_url" alt="Logo actual del negocio" />
+            }
+            <input id="business-logo-upload" type="file" accept="image/jpeg,image/png,image/webp"
+              (change)="selectBusinessLogo($event)" />
+            <small>{{ editLogoFile ? editLogoFile.name : "JPG, PNG o WebP; se optimiza automáticamente." }}</small>
           </div>
           <div class="form-group">
             <label>Costo de Envío ($ MXN)</label>
@@ -259,6 +298,66 @@
             💾 Guardar Cambios
           </button>
         </form>
+      </div>
+    </section>
+    }
+    @if (activeTab() === "orders") {
+    <section class="tab-content">
+      <div class="card">
+        <div class="card-header flex-between">
+          <div>
+            <h3>🧾 Pedidos recientes</h3>
+            <p>Consulta los pedidos del negocio y actualiza su estado.</p>
+          </div>
+          <button class="btn btn-secondary" type="button" (click)="loadOrders()" [disabled]="ordersLoading()">
+            {{ ordersLoading() ? "Actualizando…" : "Actualizar" }}
+          </button>
+          <label>Mostrar
+            <select [ngModel]="ordersFilter()" (ngModelChange)="ordersFilter.set($event)" name="ordersFilter">
+              <option value="active">En curso</option>
+              <option value="all">Todos</option>
+            </select>
+          </label>
+        </div>
+        @if (ordersError()) { <p role="alert">{{ ordersError() }}</p> }
+        @if (ordersLoading() && !orders().length) { <p>Cargando pedidos…</p> }
+        @if (!ordersLoading() && !ordersError() && !visibleOrders().length) {
+          <p>{{ ordersFilter() === "active" ? "No hay pedidos en curso." : "Aún no hay pedidos registrados." }}</p>
+        }
+        @for (order of visibleOrders(); track order.id) {
+          <article class="order-card">
+            <div class="flex-between">
+              <div>
+                <h4>Pedido #{{ order.id.slice(0, 8).toUpperCase() }}</h4>
+                <p>{{ order.created_at | date: "medium" }} · {{ order.customer_name }} · {{ order.customer_phone }}</p>
+              </div>
+              <label>Estado
+                <select [ngModel]="order.status" (ngModelChange)="updateOrderStatus(order, $event)"
+                  [disabled]="orderBusyId() !== null" [name]="'order-status-' + order.id">
+                  <option value="new">Nuevo</option>
+                  <option value="confirmed">Confirmado</option>
+                  <option value="preparing">En preparación</option>
+                  <option value="ready">Listo</option>
+                  <option value="completed">Entregado</option>
+                  <option value="cancelled">Cancelado</option>
+                </select>
+              </label>
+            </div>
+            <p>{{ order.service_type === "table" ? "Mesa " + (order.table_number || "") : order.service_type === "delivery" ? "A domicilio · " + (order.delivery_address || "") : "Para llevar" }}</p>
+            <ul>
+              @for (item of order.items; track item.product_id + $index) {
+                <li>{{ item.quantity }} × {{ item.product_name }} — ${{ item.line_total | number: "1.2-2" }}
+                  @if (item.selected_modifiers.length) { <small>({{ modifierNames(item) }})</small> }
+                  @if (item.notes) { <small> · {{ item.notes }}</small> }
+                </li>
+              }
+            </ul>
+            <p>Pago: {{ order.payment_method }} · Subtotal: ${{ order.subtotal | number: "1.2-2" }}
+              @if (order.delivery_fee > 0) { · Envío: ${{ order.delivery_fee | number: "1.2-2" }}}
+              · <strong>Total: ${{ order.total | number: "1.2-2" }} MXN</strong>
+            </p>
+          </article>
+        }
       </div>
     </section>
     }
@@ -296,8 +395,11 @@
         <textarea [(ngModel)]="newProductDescription" rows="3" placeholder="Ingredientes o especificaciones"></textarea>
       </div>
       <div class="form-group">
-        <label>URL de Imagen</label>
-        <input type="text" [(ngModel)]="newProductImageUrl" placeholder="https://..." />
+        <label>Foto del platillo</label>
+        <input type="file" accept="image/jpeg,image/png,image/webp" (change)="selectDishPhoto($event, 'new')" />
+        @if (newProductImageFile) { <small>{{ newProductImageFile.name }}</small> }
+        <label>O pega una URL de imagen</label>
+        <input type="url" [(ngModel)]="newProductImageUrl" placeholder="https://..." />
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" (click)="showAddModal = false">
@@ -337,8 +439,11 @@
         <textarea [(ngModel)]="editProductDescription" rows="3" placeholder="Descripción del platillo"></textarea>
       </div>
       <div class="form-group">
-        <label>URL de Imagen</label>
-        <input type="text" [(ngModel)]="editProductImageUrl" placeholder="https://..." />
+        <label>Subir una foto nueva</label>
+        <input type="file" accept="image/jpeg,image/png,image/webp" (change)="selectDishPhoto($event, 'edit')" />
+        @if (editProductImageFile) { <small>{{ editProductImageFile.name }}</small> }
+        <label>URL de imagen</label>
+        <input type="url" [(ngModel)]="editProductImageUrl" placeholder="https://..." />
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" (click)="showEditModal = false">

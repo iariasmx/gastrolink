@@ -460,7 +460,7 @@ saveModifierOption(businessId, groupId, payload)
 deleteModifierOption(businessId, optionId)
 ```
 
-> Nota: `createCategory/updateCategory/deleteCategory` se implementan vía `register_resource('categories', ...)` en backend; el AdminService no tiene helpers para categorías (solo productos y modificadores se usan en la UI actual de AdminComponent).
+> Nota: el backend expone el CRUD contextual de categorías mediante `register_resource('categories', ...)`; el frontend ya cuenta con helpers y controles administrativos para crear, editar, activar/desactivar y eliminar categorías.
 
 ---
 
@@ -468,7 +468,7 @@ deleteModifierOption(businessId, optionId)
 
 Ubicación: `frontend-app/src/app/services/supabase.service.ts`.  
 Integra `@supabase/supabase-js` en el navegador para recuperar contraseña por OTP.  
-La URL y anon key son las mismas que usa el backend (`sb_publishable_...` y `https://<project_ref>.supabase.co`). Actualmente las constantes están inline; pendiente mover a `environment.ts` cuando el usuario termine la configuración.
+La URL y publishable/anon key son las mismas que usa el backend (`SUPABASE_URL` y `SUPABASE_KEY`). Se configuran en `frontend-app/src/environments/environment.ts` y `environment.development.ts`; la publishable key es pública y el secret key nunca se incluye en el bundle.
 
 ```typescript
 createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -546,7 +546,7 @@ Ruta sugerida:
 ```
 
 ### 6. BusinessFormComponent
-Formulario para crear/editar negocio (pendiente de UI: Fase 3).
+Formulario para crear/editar negocio (`BusinessFormComponent`, implementado en Fase 3).
 
 ### 7. AdminComponent actualizado — Actualizado 2026-10-08 (UI loading)
 - Recibe `businessId/slug` desde la ruta `paramMap` y carga el negocio por `AuthService.getBusinessByIdOrSlug`.
@@ -622,13 +622,16 @@ Agregar opción opcional al crear negocio:
 template_type:
 - empty
 - taqueria
+- fonda
+- antojitos
 - hamburgueseria
 - cafeteria
 - pizzeria
-- restaurante_general
+- marisqueria
+- restaurante_familiar
 ```
 
-Si se selecciona plantilla, backend crea categorías base.
+La plantilla solo aplica al crear el negocio. El backend crea las categorías base en la misma transacción que el negocio y la asociación del dueño. Las categorías son puntos de partida editables, orientadas a restaurantes pequeños y medianos de México (por ejemplo, tacos, comida corrida, antojitos, aguas frescas/bebidas, guarniciones y postres); no se precargan platillos ni precios.
 
 ---
 
@@ -711,14 +714,15 @@ Si se selecciona plantilla, backend crea categorías base.
 - **Añadido 2026-10-08:** Caché TTL 60s AuthService.
 
 ### Fase 3 — Listado y formulario de negocios
-- [x] Listado `BusinessListComponent` creado con buscar/eliminar (falta crear/editar full BusinessFormComponent).
-- [ ] Crear `BusinessFormComponent` para alta y edición.
-- [ ] Incluir nombre, slug, WhatsApp, logo y modalidades de pedido.
-- [ ] Incluir costo de envío, pedido mínimo y estado activo/inactivo.
-- [ ] Incluir correo del dueño/admin inicial al crear un negocio.
-- [ ] Validar el formato del slug y mostrar errores de duplicidad devueltos por el backend.
-- [ ] Permitir activar y desactivar negocios.
-- [ ] Agregar la interfaz básica para asignar y retirar usuarios, según los permisos requeridos.
+- [x] Crear `BusinessListComponent` con listado, búsqueda, filtros por estado y estado activo/inactivo.
+- [x] Agregar acciones para crear, editar, entrar al panel y eliminar negocios (superadmin).
+- [x] Crear `BusinessFormComponent` para alta y edición.
+- [x] Incluir nombre, slug, WhatsApp, logo y modalidades de pedido.
+- [x] Incluir costo de envío, pedido mínimo y estado activo/inactivo.
+- [x] Incluir correo del dueño/admin inicial al crear un negocio.
+- [x] Validar el formato del slug en el formulario y mostrar el error 409 de duplicidad devuelto por el backend.
+- [x] Permitir activar y desactivar negocios mediante el formulario de edición.
+- [x] Agregar la interfaz básica para asignar y retirar usuarios con roles, solo visible para superadmin.
 
 ### Fase 4 — Servicios, persistencia y seguridad
 
@@ -726,22 +730,22 @@ Si se selecciona plantilla, backend crea categorías base.
 - [x] Agregar `getBusinessMenu()` y `updateBusinessSettings()`.
 - [x] Pasar `businessId` en todas las operaciones de productos y categorías.
 - [x] Pasar `businessId` en todas las operaciones de grupos y opciones de modificadores.
-- [ ] Completar métodos e interfaz para crear, editar y eliminar categorías.
-- [ ] Agregar modelos de usuario, roles y asociaciones usuario-negocio.
-- [ ] Completar los campos faltantes del esquema recomendado: pertenencia de productos al negocio, estado de categorías, orden de productos y marcas de actualización.
-- [ ] Manejar errores de persistencia sin presentar cambios locales como guardados en el backend.
-- [ ] Evitar que cualquier error de carga del menú se sustituya automáticamente por datos demo.
+- [x] Completar métodos e interfaz para crear, editar y eliminar categorías por `businessId`.
+- [x] Agregar modelos de usuario, roles y asociaciones usuario-negocio.
+- [x] Completar modelos y persistencia del esquema: pertenencia de productos al negocio, estado de categorías, orden y `updated_at`; ya estaban en la migración de fase 1.
+- [x] Manejar errores de persistencia sin presentar cambios locales como guardados en el backend.
+- [x] Evitar que errores al cargar el menú se sustituyan por datos demo; mostrar error y permitir reintentar.
 - [x] Backend: validar JWT mediante Supabase Auth, usuario activo y rol en cada endpoint protegido; probado con autenticación real 2026-10-08.
 - [x] Backend: validar la relación del usuario con el negocio; probado con datos reales (ig.arias@gmail.com asociado a tacos-el-pastor como business_owner).
 - [x] Backend: validar que cada recurso y su padre pertenezcan al negocio indicado.
 - [x] Backend: retirar las rutas de escritura antiguas para impedir operaciones sin validar el contexto de negocio.
 
 ### Fase 5 — Opcionales
-- [ ] Recuperación password: Migrar credenciales `SUPABASE_URL`/`SUPABASE_ANON_KEY` inline en `supabase.service.ts` a `environment.development.ts` / `environment.production.ts` + `fileReplacements` en `angular.json`. (Opcional, pendiente de que usuario termine config).
-- [ ] Agregar selección de plantilla al crear negocios.
-- [ ] Backend: crear categorías base según la plantilla seleccionada (por verificar).
-- [ ] Agregar asignación avanzada de usuarios.
-- [ ] Agregar módulo de pedidos.
+- [x] Recuperación password: credenciales movidas de `supabase.service.ts` a environments de desarrollo/producción y `fileReplacements` en `angular.json`.
+- [x] Agregar selección de plantilla al crear negocios, con opciones para taquería, fonda/comida corrida, antojitos, hamburguesería, cafetería, pizzería, marisquería y restaurante familiar.
+- [x] Backend: crear categorías base mexicanas por plantilla de forma atómica; `empty` no crea categorías (`002_business_menu_templates.sql`).
+- [x] Agregar asignación avanzada de usuarios: listado, búsqueda, edición de rol e invitación por email.
+- [x] Agregar módulo de pedidos con snapshots de precios, menú verificado por backend y estados; aplicar migración `003_orders.sql` en Supabase para habilitar persistencia.
 
 ---
 
@@ -758,17 +762,24 @@ El menú público debe seguir resolviéndose por `slug`.
 El panel administrativo debe ser reutilizable para cualquier negocio seleccionado.
 
 **Credenciales y config Supabase (2026-10-08):**
-- `SUPABASE_URL` y anon-key (publishable `sb_publishable_...`) están **duplicadas** en 2 sitios y deben ser idénticas:
-  - Backend `backend-api/.env`: `SUPABASE_URL` + `SUPABASE_KEY` (anon, para sign_in) + `SUPABASE_SECRET_KEY` (secret/service role, para `current_user` que usa `get_user` y todas las escrituras en tablas).
-  - Frontend `frontend-app/src/app/services/supabase.service.ts`: mismas `SUPABASE_URL` + `SUPABASE_ANON_KEY` = `SUPABASE_KEY` de backend.
-- Si el usuario cambia las credenciales en dashboard: hay que actualizar ambos sitios y **reiniciar uvicorn** (settings de pydantic se cargan 1 vez al importar; `.env` no hot-reload sin `--reload`).
+- La URL y publishable/anon key deben coincidir entre backend `backend-api/.env` y ambos archivos frontend `frontend-app/src/environments/environment*.ts`.
+- Backend `.env`: `SUPABASE_URL`, `SUPABASE_KEY` (anon/publishable para sign-in) y `SUPABASE_SECRET_KEY` (solo backend para validar usuarios y persistir).
+- Si cambia la URL/key en dashboard, actualiza backend y environments frontend; después reinicia uvicorn.
 - El secret key **solo vive en backend**; nunca se incluye en el frontend ni bundle.
 
 ---
 
 ## Checklist de progreso
 
-**Última revisión: 2026-10-08**. Principales novedades vs. 2026-10-07:
+**Última revisión: 2026-10-10**. Principales novedades desde la revisión anterior:
+- Completada en código la Fase 3: listado con búsqueda/filtros por estado, alta y edición, estado activo/inactivo y asignación/retiro básico de usuarios para superadmin.
+- Completada en código la Fase 4: CRUD de categorías por negocio, modelos de usuario/asociación, y carga de menú con error y reintento en vez de datos demo. Los campos de esquema ya estaban cubiertos por la migración.
+- Fase 5 implementada en código: plantillas de menú mexicanas, gestión/invitación de usuarios y bandeja de pedidos. El checkout usa una clave idempotente con índice único para responder reintentos sin duplicar pedidos. Aplicar (o volver a ejecutar) `backend-api/migrations/003_orders.sql` en Supabase antes de recibir pedidos.
+- Fotos de platillos: los usuarios con rol de dueño o administrador del negocio pueden subir JPG, PNG o WebP (original hasta 20 MB) al alta y edición. El navegador las convierte a WebP, reduce el lado mayor hasta 1600 px y ajusta calidad para que el archivo final no supere 5 MB. La migración `backend-api/migrations/004_dish_photos_storage.sql` crea el bucket público de lectura y limita cargas/cambios/borrado al negocio propietario (y superadmin); debe aplicarse en Supabase.
+- Logo del negocio: en alta/edición se puede seleccionar una imagen (JPG, PNG o WebP, original hasta 20 MB); se optimiza a WebP de hasta 512 px y 1 MB y se almacena en el bucket `dish-photos` con permisos restringidos por negocio. Al crear, el negocio se registra primero y luego se sube y guarda el logo; si falla la carga, el formulario queda listo para reintentar.
+- Compatibilidad de pedidos: si `orders` ya existía con un esquema anterior, aplicar `backend-api/migrations/005_order_address_references.sql`; agrega columnas esperadas por el checkout como `customer_phone` y `address_references`, conserva `delivery_method`, asigna `[]` por defecto a `raw_cart_json`, repara la clave idempotente y recarga el caché de PostgREST. `003_orders.sql` también queda idempotente para instalaciones nuevas o actualizaciones completas.
+- `python3 -m py_compile` para módulos backend y `ngc --noEmit -p tsconfig.app.json` pasan. `ng build` abortó con código 134 mientras mostraba “Building…”, sin diagnóstico.
+- La compilación Angular (`ngc` con `--rootDir src`) pasa. `ng build` aborta con código 134 tras mostrar “Building…” tanto en production como development, sin diagnóstico.
 - Implementado flujo completo de recuperación de contraseña OTP de 6 dígitos (login → forgot → request → verify-otp → reset-password), integrado con Supabase Auth y con `/api/auth/session` para reconocer la sesión recovery en el backend de permisos.
 - Corregidos bugs de `verify-otp.component` (paste Array negativo, getter privado en template causando re-evaluaciones, desincronía DOM ↔ signal al escribir rápido).
 - Optimizaciones de rendimiento para "páginas de negocio tardan unos segundos en cargar": caché TTL 60s frontend en AuthService; cachés `rows()` y `menu()` backend con invalidación automática en writes.
@@ -779,7 +790,7 @@ El panel administrativo debe ser reutilizable para cualquier negocio seleccionad
 - Logs detallados de autorización en backend para diagnosticar 401s con info real (qué key está cargando uvicorn, excepción Supabase).
 - Limpieza del repositorio Git: `.gitignore` reglas `myenv/**` y eliminados `__pycache__/*.pyc` + binarios venv del index.
 
-Build frontend `ng build` pasa sin errores (solo warnings de budget conocidos). `GetDiagnostics` 0 errores TypeScript/template.
+`ngc --noEmit -p tsconfig.app.json` pasó sin errores TypeScript/template.
 
 Marcar `[x]` cuando el requisito esté implementado y verificado. Actualizar la fecha y las notas al revisar avances.
 
@@ -847,16 +858,15 @@ Marcar `[x]` cuando el requisito esté implementado y verificado. Actualizar la 
 
 ### Fase 3 — Listado y formulario de negocios
 
-- [x] Crear `BusinessListComponent` con listado, búsqueda/filtros y estado activo/inactivo.
-- [x] Agregar acciones para **eliminar** un negocio (superadmin) con confirmación y actualización de la sesión local.
-- [x] Agregar acción para **entrar al panel** del negocio (ruta `/admin/businesses/:slug`).
-- [ ] Crear `BusinessFormComponent` para alta y edición.
-- [ ] Incluir nombre, slug, WhatsApp, logo y modalidades de pedido.
-- [ ] Incluir costo de envío, pedido mínimo y estado activo/inactivo.
-- [ ] Incluir correo del dueño/admin inicial al crear un negocio.
-- [ ] Validar el formato del slug y mostrar errores de duplicidad devueltos por el backend (409 slug duplicado / 422 mal formato).
-- [ ] Permitir activar y desactivar negocios.
-- [ ] Agregar la interfaz básica para asignar y retirar usuarios, según los permisos requeridos (solo business_owner / superadmin).
+- [x] Crear `BusinessListComponent` con listado, búsqueda, filtros por estado y estado activo/inactivo.
+- [x] Agregar acciones para crear, editar, entrar al panel y eliminar negocios (superadmin, con confirmación).
+- [x] Crear `BusinessFormComponent` para alta y edición.
+- [x] Incluir nombre, slug, WhatsApp, logo y modalidades de pedido.
+- [x] Incluir costo de envío, pedido mínimo y estado activo/inactivo.
+- [x] Incluir correo del dueño/admin inicial al crear un negocio.
+- [x] Validar el formato del slug y mostrar conflictos 409 devueltos por el backend.
+- [x] Permitir activar y desactivar negocios mediante edición.
+- [x] Agregar la interfaz básica para asignar y retirar usuarios (solo superadmin).
 
 ### Fase 4 — Servicios, persistencia y seguridad
 
@@ -864,11 +874,11 @@ Marcar `[x]` cuando el requisito esté implementado y verificado. Actualizar la 
 - [x] Agregar `getBusinessMenu()` y `updateBusinessSettings()`.
 - [x] Pasar `businessId` en todas las operaciones de productos y categorías.
 - [x] Pasar `businessId` en todas las operaciones de grupos y opciones de modificadores.
-- [ ] Completar métodos e interfaz para crear, editar y eliminar categorías.
-- [ ] Agregar modelos de usuario, roles y asociaciones usuario-negocio.
-- [ ] Completar los campos faltantes del esquema recomendado: pertenencia de productos al negocio, estado de categorías, orden de productos y marcas de actualización.
-- [ ] Manejar errores de persistencia sin presentar cambios locales como guardados en el backend.
-- [ ] Evitar que cualquier error de carga del menú se sustituya automáticamente por datos demo.
+- [x] Completar métodos e interfaz para crear, editar y eliminar categorías por `businessId`.
+- [x] Agregar modelos de usuario, roles y asociaciones usuario-negocio.
+- [x] Completar modelos y persistencia del esquema: pertenencia de productos al negocio, estado de categorías, orden y `updated_at`; ya estaban en la migración de fase 1.
+- [x] Manejar errores de persistencia sin presentar cambios locales como guardados en el backend.
+- [x] Evitar que errores al cargar el menú se sustituyan por datos demo; mostrar error y permitir reintentar.
 - [x] Backend: validar JWT mediante Supabase Auth, usuario activo y rol en cada endpoint protegido.
 - [x] Backend: validar la relación del usuario con el negocio (función `permit()` y helper `businesses(user)` que usa `user_businesses`).
 - [x] Backend: validar que cada recurso y su padre pertenezcan al negocio indicado (`scoped_record`).
@@ -890,8 +900,8 @@ Marcar `[x]` cuando el requisito esté implementado y verificado. Actualizar la 
 
 ### Fase 5 — Opcionales
 
-- [ ] Migrar credenciales `SUPABASE_URL` y `SUPABASE_ANON_KEY` inline en `supabase.service.ts` a `environment.ts` usando `fileReplacements` o `import.meta.env`.
-- [ ] Agregar selección de plantilla al crear negocios: `empty`, `taqueria`, `hamburgueseria`, `cafeteria`, `pizzeria` y `restaurante_general`.
-- [ ] Backend: crear categorías base según la plantilla seleccionada (por verificar).
-- [ ] Agregar asignación avanzada de usuarios (lista, search, roles dropdown business_admin/staff).
-- [ ] Agregar módulo de pedidos.
+- [x] Migrar credenciales `SUPABASE_URL` y `SUPABASE_ANON_KEY` a `environment.ts` y `environment.development.ts` usando `fileReplacements`.
+- [x] Agregar selección de plantilla al crear negocios: `empty`, `taqueria`, `fonda`, `antojitos`, `hamburgueseria`, `cafeteria`, `pizzeria`, `marisqueria` y `restaurante_familiar`.
+- [x] Backend: crear categorías base según plantilla dentro de la transacción del alta (`backend-api/migrations/002_business_menu_templates.sql`).
+- [x] Agregar asignación avanzada de usuarios (lista, búsqueda, roles dropdown e invitación por email).
+- [x] Agregar módulo de pedidos con bandeja de seguimiento por negocio (`003_orders.sql`).

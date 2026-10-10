@@ -238,6 +238,17 @@
       margin-bottom: 0.75rem;
     }
 
+    .category-block-header > div:first-child { margin-right: auto; }
+    .category-block-header h4 { margin: 0 0 0.25rem; }
+    .category-block-header small { color: #64748b; font-weight: 400; }
+    .category-edit-form { display: grid; gap: 0.75rem; max-width: 600px; margin: 1rem 0; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 12px; }
+    .category-edit-form h4 { margin: 0; }
+    .order-card { padding: 1rem 0; border-bottom: 1px solid #e2e8f0; }
+    .order-card:last-child { border-bottom: 0; }
+    .order-card h4, .order-card p { margin: 0.35rem 0; }
+    .order-card ul { margin: 0.5rem 0; padding-left: 1.25rem; }
+    .order-card label { display: grid; gap: 0.35rem; }
+
     .crud-products-list {
       display: flex;
       flex-direction: column;
@@ -505,3 +516,243 @@
       height: auto;
       min-height: 230px;
     }
+
+/* Modern spacing and form rhythm for business management views. */
+.admin-main {
+  padding: clamp(1.25rem, 3vw, 2.5rem);
+  background: #f1f5f9;
+}
+.admin-header {
+  padding: 1.35rem 1.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+}
+.admin-header h1 {
+  letter-spacing: -0.035em;
+}
+.tab-content {
+  display: grid;
+  gap: 1.25rem;
+}
+.card {
+  padding: clamp(1.1rem, 2.5vw, 1.75rem);
+  border-radius: 18px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.045);
+}
+.card-header {
+  gap: 1rem;
+  padding-bottom: 1.1rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+.card-header h3,
+.card > h3 {
+  margin-top: 0;
+  letter-spacing: -0.02em;
+}
+.card-header p {
+  margin: 0.45rem 0 0;
+  color: #64748b;
+  line-height: 1.55;
+}
+.settings-form {
+  display: grid;
+  gap: 1.25rem;
+  max-width: 760px;
+  margin-top: 1.25rem;
+}
+.form-group {
+  gap: 0.55rem;
+}
+.form-group label,
+.settings-form > label {
+  color: #334155;
+  font-weight: 650;
+}
+.form-group input,
+.form-group select,
+.form-group textarea,
+.settings-form input:not([type="checkbox"]),
+.settings-form select,
+.settings-form textarea,
+.order-card select,
+.order-card input {
+  min-height: 44px;
+  padding: 0.72rem 0.8rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.form-group textarea,
+.settings-form textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+.form-group input:focus-visible,
+.form-group select:focus-visible,
+.form-group textarea:focus-visible,
+.settings-form input:focus-visible,
+.settings-form select:focus-visible,
+.settings-form textarea:focus-visible,
+.order-card select:focus-visible {
+  outline: 3px solid rgba(37, 211, 102, 0.18);
+  border-color: #15803d;
+}
+.form-checkboxes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin: 0.25rem 0;
+  padding: 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+.form-checkboxes label {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 40px;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #334155;
+}
+.form-checkboxes input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  accent-color: #15803d;
+}
+.form-group input[type="file"] {
+  min-height: auto;
+  border-style: dashed;
+  background: #f8fafc;
+}
+.logo-upload-group small {
+  color: #64748b;
+  font-size: 0.82rem;
+}
+.settings-logo-preview {
+  width: 72px;
+  height: 72px;
+  padding: 0.35rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+  object-fit: contain;
+}
+.btn {
+  transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.12);
+}
+.btn:focus-visible,
+.modal-card button:focus-visible,
+.admin-sidebar button:focus-visible,
+.admin-sidebar a:focus-visible {
+  outline: 3px solid rgba(37, 211, 102, 0.28);
+  outline-offset: 2px;
+}
+.modal-overlay {
+  padding: 1rem;
+  backdrop-filter: blur(4px);
+}
+.modal-card {
+  width: min(100%, 560px);
+  max-height: min(90vh, 900px);
+  overflow-y: auto;
+  padding: clamp(1.25rem, 4vw, 1.8rem);
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22);
+}
+.modal-card h3 {
+  margin: 0 0 0.2rem;
+  letter-spacing: -0.02em;
+}
+.category-edit-form {
+  gap: 1rem;
+  max-width: 680px;
+  margin: 1.25rem 0;
+  padding: 1.25rem;
+  background: #f8fafc;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.035);
+}
+.order-card {
+  margin: 0.5rem 0;
+  padding: 1.25rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+}
+@media (max-width: 900px) {
+  .admin-layout {
+    display: block;
+  }
+  .admin-sidebar {
+    width: 100%;
+    padding: 1rem 1.25rem;
+    gap: 1rem;
+  }
+  .sidebar-menu {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+  }
+  .sidebar-menu button {
+    flex: 1 1 190px;
+  }
+  .sidebar-footer {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.65rem;
+    align-items: center;
+  }
+  .user-info-box,
+  .preview-btn {
+    margin: 0;
+  }
+}
+@media (max-width: 640px) {
+  .admin-main {
+    padding: 1rem;
+  }
+  .admin-header {
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1rem;
+  }
+  .slug-pill {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .grid-2col {
+    grid-template-columns: 1fr;
+  }
+  .qr-actions,
+  .modal-actions {
+    flex-direction: column;
+  }
+  .qr-actions button,
+  .modal-actions button {
+    width: 100%;
+  }
+  .form-checkboxes {
+    grid-template-columns: 1fr;
+  }
+  .crud-product-item {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .crud-item-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

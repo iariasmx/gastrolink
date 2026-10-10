@@ -51,6 +51,12 @@ export const routes: Routes = [
     data: { tab: "settings" },
   },
   {
+    path: "admin/businesses/:businessSlug/orders",
+    component: AdminComponent,
+    canActivate: [AuthGuard.canActivate],
+    data: { tab: "orders" },
+  },
+  {
     path: "admin/businesses/:businessSlug",
     component: AdminComponent,
     canActivate: [AuthGuard.canActivate],

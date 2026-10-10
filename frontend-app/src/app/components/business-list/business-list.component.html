@@ -7,56 +7,172 @@
     </div>
     <div class="actions">
       @if (auth.isSuperadmin()) {
-      <a routerLink="/admin/businesses/new">Crear negocio</a>
+        <a routerLink="/admin/businesses/new">Crear negocio</a>
       }
       <button (click)="auth.logout()">Cerrar sesión</button>
     </div>
   </header>
   @if (accessDenied) {
-  <p role="alert" class="notice">
-    No tienes permiso para administrar ese negocio o realizar esa acción.
-  </p>
+    <p role="alert" class="notice">
+      No tienes permiso para administrar ese negocio o realizar esa acción.
+    </p>
   }
   @if (deleteError()) {
-  <p role="alert" class="notice">{{ deleteError() }}</p>
+    <p role="alert" class="notice">{{ deleteError() }}</p>
   }
-  <label class="search">Buscar negocios
-    <input type="search" [ngModel]="query()" (ngModelChange)="query.set($event)" placeholder="Nombre o slug" /></label>
-  @if (!auth.businesses().length) {
-  <p>
-    No tienes negocios disponibles. Contacta al administrador para solicitar
-    acceso.
-  </p>
+  <label class="search"
+    >Buscar negocios
+    <input
+      type="search"
+      [ngModel]="query()"
+      (ngModelChange)="query.set($event)"
+      placeholder="Nombre o slug"
+  /></label>
+  <label class="search"
+    >Estado
+    <select [ngModel]="status()" (ngModelChange)="status.set($event)">
+      <option value="all">Todos</option>
+      <option value="active">Activos</option>
+      <option value="inactive">Inactivos</option>
+    </select>
+  </label>
+  @if (loading()) {
+    <p>Cargando negocios…</p>
+  }
+  @if (loadError()) {
+    <p role="alert" class="notice">{{ loadError() }}</p>
+  }
+  @if (!loading() && !loadError() && !auth.businesses().length) {
+    <p>
+      No tienes negocios disponibles. Contacta al administrador para solicitar
+      acceso.
+    </p>
   }
   @if (auth.businesses().length && !filtered().length) {
-  <p>No hay negocios que coincidan con tu búsqueda.</p>
+    <p>No hay negocios que coincidan con tu búsqueda.</p>
   }
   <section class="business-grid" aria-label="Negocios">
     @for (business of filtered(); track business) {
-    <article>
-      <div class="heading">
-        <h2>{{ business.name }}</h2>
-        <span>{{ business.is_active ? "Activo" : "Inactivo" }}</span>
-      </div>
-      <p>/menu/{{ business.slug }}</p>
-      <div class="actions">
-        @if (auth.canManageBusiness(business.id)) {
-        <a [routerLink]="['/admin/businesses', business.slug]">Entrar al panel</a>
+      <article>
+        <div class="heading">
+          <h2>{{ business.name }}</h2>
+          <span>{{ business.is_active ? "Activo" : "Inactivo" }}</span>
+        </div>
+        <p>/menu/{{ business.slug }}</p>
+        <div class="actions">
+          @if (auth.canManageBusiness(business.id)) {
+            <a [routerLink]="['/admin/businesses', business.slug]"
+              >Entrar al panel</a
+            >
+          }
+          @if (!auth.canManageBusiness(business.id) && business.role === "staff") {
+            <a [routerLink]="['/admin/businesses', business.slug, 'orders']">Ver pedidos</a>
+          }
+          @if (!auth.canManageBusiness(business.id) && business.role !== "staff") {
+            <span>Sin permiso de administración</span>
+          }
+          @if (auth.isSuperadmin()) {
+            <a [routerLink]="['/admin/businesses', business.slug, 'edit']"
+              >Editar negocio</a
+            >
+          }
+          @if (auth.isSuperadmin() || business.role === "business_owner") {
+            <button type="button" (click)="toggleUsers(business.id)">
+              Gestionar usuarios
+            </button>
+          }
+          @if (auth.isSuperadmin()) {
+            <button
+              type="button"
+              [disabled]="deletingBusinessId() !== null"
+              (click)="deleteBusiness(business)"
+            >
+              {{
+                deletingBusinessId() === business.id
+                  ? "Eliminando…"
+                  : "Eliminar negocio"
+              }}
+            </button>
+          }
+          @if (business.is_active) {
+            <a [routerLink]="['/menu', business.slug]">Menú público</a>
+          }
+        </div>
+        @if (expandedUsersFor() === business.id) {
+          <section class="user-management" aria-label="Usuarios del negocio">
+              <h3>Usuarios y accesos</h3>
+            <label>Buscar usuario
+              <input type="search" [ngModel]="usersQuery()" (ngModelChange)="usersQuery.set($event)"
+                placeholder="Correo o rol" />
+            </label>
+            @for (user of filteredUsers(); track user.id) {
+              <div class="heading">
+                <span>{{ user.email || user.user_id }}</span>
+                <label>Rol
+                  <select [ngModel]="user.role" (ngModelChange)="updateUserRole(business.id, user, $event)"
+                    [disabled]="userBusy()" [name]="'role-' + user.user_id">
+                    <option value="business_owner">Dueño</option>
+                    <option value="business_admin">Administrador</option>
+                    <option value="staff">Personal</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  [disabled]="userBusy() || !user.email"
+                  (click)="sendUserPasswordReset(business.id, user)"
+                >
+                  Enviar recuperación
+                </button>
+                <button
+                  type="button"
+                  [disabled]="userBusy()"
+                  (click)="removeUser(business.id, user.user_id)"
+                >
+                  Retirar acceso
+                </button>
+              </div>
+            }
+            @if (!users().length) {
+              <p>No hay usuarios asignados.</p>
+            }
+            @if (users().length && !filteredUsers().length) {
+              <p>No hay usuarios que coincidan con la búsqueda.</p>
+            }
+            <form (ngSubmit)="assignUser(business)">
+              <label
+                >Correo del usuario
+                <input
+                  type="email"
+                  required
+                  [ngModel]="userEmail()"
+                  (ngModelChange)="userEmail.set($event)"
+                  name="assignedEmail"
+              /></label>
+              <label
+                >Rol
+                <select
+                  [ngModel]="userRole()"
+                  (ngModelChange)="userRole.set($event)"
+                  name="assignedRole"
+                >
+                  <option value="business_owner">Dueño</option>
+                  <option value="business_admin">Administrador</option>
+                  <option value="staff">Personal</option>
+                </select></label
+              >
+              <button type="submit" [disabled]="userBusy()">
+                Invitar y asignar
+              </button>
+            </form>
+            @if (userError()) {
+              <p class="notice" role="alert">{{ userError() }}</p>
+            }
+            @if (userMessage()) {
+              <p role="status">{{ userMessage() }}</p>
+            }
+          </section>
         }
-        @if (!auth.canManageBusiness(business.id)) {
-        <span>Sin permiso de administración</span>
-        }
-        @if (auth.isSuperadmin()) {
-        <a [routerLink]="['/admin/businesses', business.slug, 'edit']">Editar negocio</a>
-        <button type="button" [disabled]="deletingBusinessId() !== null" (click)="deleteBusiness(business)">
-          {{ deletingBusinessId() === business.id ? "Eliminando…" : "Eliminar negocio" }}
-        </button>
-        }
-        @if (business.is_active) {
-        <a [routerLink]="['/menu', business.slug]">Menú público</a>
-        }
-      </div>
-    </article>
+      </article>
     }
   </section>
 </main>

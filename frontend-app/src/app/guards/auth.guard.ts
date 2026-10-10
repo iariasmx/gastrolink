@@ -22,7 +22,12 @@ export class AuthGuard {
           route.paramMap.get("businessId");
         if (businessRef) {
           const business = auth.getBusinessByIdOrSlug(businessRef);
-          if (!business || !auth.canManageBusiness(business.id))
+          const staffOrdersOnly =
+            route.data["tab"] === "orders" && business?.role === "staff";
+          if (
+            !business ||
+            (!auth.canManageBusiness(business.id) && !staffOrdersOnly)
+          )
             return router.createUrlTree(["/admin/businesses"], {
               queryParams: { accessDenied: true },
             });

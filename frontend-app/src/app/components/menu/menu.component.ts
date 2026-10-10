@@ -1,6 +1,7 @@
 import {
   Component,
   OnInit,
+  DestroyRef,
   computed,
   inject,
   signal,
@@ -10,6 +11,7 @@ import { CommonModule } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { ActivatedRoute } from "@angular/router";
 import { MenuService } from "../../services/menu.service";
+import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
 import { CartService } from "../../services/cart.service";
 import { CartDrawerComponent } from "../cart-drawer/cart-drawer.component";
 import {
@@ -31,6 +33,7 @@ export class MenuComponent implements OnInit {
   menuService = inject(MenuService);
   cartService = inject(CartService);
   route = inject(ActivatedRoute);
+  private destroyRef = inject(DestroyRef);
 
   isCartOpen = false;
   activeCategoryId = "";
@@ -61,10 +64,18 @@ export class MenuComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.route.params.subscribe((params) => {
-      const slug = params["slug"] || "tacos-el-pastor";
-      this.menuService.loadMenuBySlug(slug);
-    });
+    this.route.params
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((params) => {
+        const slug = params["slug"];
+        if (!slug) return;
+        this.menuService.loadMenuBySlug(slug);
+      });
+  }
+
+  retryMenuLoad(): void {
+    const slug = this.route.snapshot.paramMap.get("slug");
+    if (slug) this.menuService.loadMenuBySlug(slug);
   }
 
   scrollToCategory(catId: string): void {

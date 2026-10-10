@@ -155,6 +155,7 @@ class OrderItemSchema(BaseModel):
 
 
 class OrderCheckoutRequest(BaseModel):
+    idempotency_key: UUID
     restaurant_slug: str
     service_type: str = Field(..., example="delivery", description="table, takeaway, or delivery")
     table_number: Optional[str] = Field(None, example="Mesa 4")
@@ -183,6 +184,5 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user_email: str
     restaurant_slug: Optional[str] = "tacos-el-pastor"
-
 
 

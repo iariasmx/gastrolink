@@ -4,15 +4,17 @@ import {
   DestroyRef,
   inject,
   signal,
+  computed,
   ChangeDetectionStrategy,
 } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { ActivatedRoute, Router, RouterLink } from "@angular/router";
 import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
-import { Observable, Subject, combineLatest, finalize, takeUntil } from "rxjs";
+import { Observable, Subject, combineLatest, finalize, of, switchMap, takeUntil } from "rxjs";
 import {
   Restaurant,
+  Category,
   CategoryWithProducts,
   Product,
   ModifierGroup,
@@ -21,6 +23,9 @@ import { ModifierEditorComponent } from "../modifier-editor/modifier-editor.comp
 
 import { AuthService } from "../../services/auth.service";
 import { AdminService } from "../../services/admin.service";
+import { OrderService } from "../../services/order.service";
+import { SupabaseService } from "../../services/supabase.service";
+import { BusinessOrder, OrderStatus } from "../../models/order.model";
 
 @Component({
   selector: "app-admin",
@@ -44,8 +49,20 @@ export class AdminComponent implements OnInit {
   actionBusy = signal(false);
   authService = inject(AuthService);
   adminService = inject(AdminService);
+  private orderService = inject(OrderService);
+  private supabaseService = inject(SupabaseService);
 
-  activeTab = signal<"overview" | "menu" | "settings">("overview");
+  activeTab = signal<"overview" | "menu" | "settings" | "orders">("overview");
+  orders = signal<BusinessOrder[]>([]);
+  ordersLoading = signal(false);
+  ordersError = signal("");
+  orderBusyId = signal<string | null>(null);
+  ordersFilter = signal<"active" | "all">("active");
+  visibleOrders = computed(() =>
+    this.ordersFilter() === "all"
+      ? this.orders()
+      : this.orders().filter((order) => !["completed", "cancelled"].includes(order.status)),
+  );
 
   restaurant = signal<Restaurant | null>(null);
   categories = signal<CategoryWithProducts[]>([]);
@@ -65,11 +82,16 @@ export class AdminComponent implements OnInit {
     );
   }
 
+  modifierNames(item: BusinessOrder["items"][number]): string {
+    return item.selected_modifiers.map((modifier) => modifier.name).join(", ");
+  }
+
   // Settings form binding
   editName = "";
   editSlug = "";
   editWhatsapp = "";
   editLogo = "";
+  editLogoFile: File | null = null;
   editDeliveryFee = 0;
   editMinimumOrder = 0;
   editIsActive = true;
@@ -84,6 +106,7 @@ export class AdminComponent implements OnInit {
   newProductPrice = 0;
   newProductDescription = "";
   newProductImageUrl = "";
+  newProductImageFile: File | null = null;
 
   // Edit Product Modal State
   showEditModal = false;
@@ -93,6 +116,14 @@ export class AdminComponent implements OnInit {
   editProductPrice = 0;
   editProductDescription = "";
   editProductImageUrl = "";
+  editProductImageFile: File | null = null;
+
+  // Category CRUD state
+  showCategoryForm = false;
+  editingCategoryId = "";
+  categoryName = "";
+  categorySortOrder = 0;
+  categoryIsActive = true;
 
   ngOnInit(): void {
     combineLatest([this.route.paramMap, this.route.data])
@@ -109,11 +140,18 @@ export class AdminComponent implements OnInit {
           return;
         }
         this.authService.selectBusiness(business.id);
+        if (this.activeTab() === "orders") {
+          this.contextChanged.next();
+          this.restaurant.set(business);
+          this.orders.set([]);
+          this.loadOrders();
+          return;
+        }
         this.loadBusiness();
       });
   }
 
-  openTab(tab: "overview" | "menu" | "settings"): void {
+  openTab(tab: "overview" | "menu" | "settings" | "orders"): void {
     const path = ["/admin/businesses", this.businessSlug()];
     if (!this.businessSlug()) return;
     if (tab !== "overview") path.push(tab);
@@ -149,6 +187,7 @@ export class AdminComponent implements OnInit {
           this.restaurant.set(data.restaurant);
           this.categories.set(data.categories);
           this.populateSettings(data.restaurant);
+          if (this.activeTab() === "orders") this.loadOrders();
         },
         error: (error) =>
           this.loadError.set(
@@ -156,6 +195,43 @@ export class AdminComponent implements OnInit {
               ? "No tienes permiso para administrar este negocio."
               : "No se pudo cargar el negocio. Intenta de nuevo.",
           ),
+      });
+  }
+
+  loadOrders(): void {
+    if (!this.businessId()) return;
+    this.ordersLoading.set(true);
+    this.ordersError.set("");
+    this.orderService
+      .list(this.businessId())
+      .pipe(
+        takeUntil(this.contextChanged),
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.ordersLoading.set(false)),
+      )
+      .subscribe({
+        next: (orders) => this.orders.set(orders),
+        error: () => this.ordersError.set("No se pudieron cargar los pedidos."),
+      });
+  }
+
+  updateOrderStatus(order: BusinessOrder, status: OrderStatus): void {
+    if (order.status === status || this.orderBusyId()) return;
+    this.orderBusyId.set(order.id);
+    this.ordersError.set("");
+    this.orderService
+      .updateStatus(this.businessId(), order.id, status)
+      .pipe(
+        takeUntil(this.contextChanged),
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.orderBusyId.set(null)),
+      )
+      .subscribe({
+        next: (updated) =>
+          this.orders.update((orders) =>
+            orders.map((item) => (item.id === updated.id ? updated : item)),
+          ),
+        error: () => this.ordersError.set("No se pudo actualizar el pedido."),
       });
   }
 
@@ -279,6 +355,90 @@ export class AdminComponent implements OnInit {
     this.showAddModal = true;
   }
 
+  openNewCategory(): void {
+    this.editingCategoryId = "";
+    this.categoryName = "";
+    this.categorySortOrder = this.categories().length;
+    this.categoryIsActive = true;
+    this.showCategoryForm = true;
+    this.actionError.set("");
+  }
+
+  openEditCategory(category: Category): void {
+    this.editingCategoryId = category.id;
+    this.categoryName = category.name;
+    this.categorySortOrder = category.sort_order;
+    this.categoryIsActive = category.is_active ?? true;
+    this.showCategoryForm = true;
+    this.actionError.set("");
+  }
+
+  cancelCategoryForm(): void {
+    this.showCategoryForm = false;
+    this.editingCategoryId = "";
+    this.categoryName = "";
+  }
+
+  saveCategory(): void {
+    const name = this.categoryName.trim();
+    if (
+      !name ||
+      name.length > 50 ||
+      !Number.isInteger(this.categorySortOrder) ||
+      this.categorySortOrder < 0
+    ) {
+      this.actionError.set(
+        "Indica un nombre de hasta 50 caracteres y un orden igual o mayor que cero.",
+      );
+      this.actionMessage.set("");
+      return;
+    }
+    const payload = {
+      name,
+      sort_order: this.categorySortOrder,
+      is_active: this.categoryIsActive,
+    };
+    const previous = this.categories().find(
+      (category) => category.id === this.editingCategoryId,
+    );
+    const request = previous
+      ? this.adminService.updateCategory(
+          this.businessId(),
+          previous.id,
+          payload,
+        )
+      : this.adminService.createCategory(this.businessId(), payload);
+    this.save(request, (saved) => {
+      this.categories.update((categories) => {
+        const updated = { ...saved, products: previous?.products ?? [] };
+        return previous
+          ? categories.map((category) =>
+              category.id === previous.id ? updated : category,
+            )
+          : [...categories, updated];
+      });
+      this.cancelCategoryForm();
+    });
+  }
+
+  deleteCategory(category: CategoryWithProducts): void {
+    if (
+      this.actionBusy() ||
+      !confirm(
+        `¿Eliminar la categoría "${category.name}" y sus ${category.products.length} productos? Esta acción no se puede deshacer.`,
+      )
+    )
+      return;
+    this.save(
+      this.adminService.deleteCategory(this.businessId(), category.id),
+      () => {
+        this.categories.update((categories) =>
+          categories.filter((item) => item.id !== category.id),
+        );
+      },
+    );
+  }
+
   saveNewProduct(): void {
     if (
       !this.newProductName.trim() ||
@@ -295,11 +455,18 @@ export class AdminComponent implements OnInit {
       image_url: this.newProductImageUrl || null,
       is_available: true,
     };
+    const imageUrl$ = this.newProductImageFile
+      ? this.supabaseService.uploadDishPhoto(this.businessId(), this.newProductImageFile)
+      : of(payload.image_url);
     this.save(
-      this.adminService.createProduct(this.businessId(), {
-        ...payload,
-        image_url: payload.image_url ?? undefined,
-      }),
+      imageUrl$.pipe(
+        switchMap((imageUrl) =>
+          this.adminService.createProduct(this.businessId(), {
+            ...payload,
+            image_url: imageUrl ?? undefined,
+          }),
+        ),
+      ),
       (created) => {
         this.categories.update((categories) =>
           categories.map((category) =>
@@ -312,6 +479,7 @@ export class AdminComponent implements OnInit {
         this.newProductPrice = 0;
         this.newProductDescription = "";
         this.newProductImageUrl = "";
+        this.newProductImageFile = null;
         this.showAddModal = false;
       },
     );
@@ -325,6 +493,7 @@ export class AdminComponent implements OnInit {
     this.editProductPrice = product.price;
     this.editProductDescription = product.description || "";
     this.editProductImageUrl = product.image_url || "";
+    this.editProductImageFile = null;
     this.showEditModal = true;
   }
 
@@ -341,19 +510,41 @@ export class AdminComponent implements OnInit {
       name: this.editProductName.trim(),
       price: this.editProductPrice,
       description: this.editProductDescription,
-      image_url: this.editProductImageUrl,
     };
+    const imageUrl$ = this.editProductImageFile
+      ? this.supabaseService.uploadDishPhoto(this.businessId(), this.editProductImageFile)
+      : of(this.editProductImageUrl);
     this.save(
-      this.adminService.updateProduct(
-        this.businessId(),
-        this.editingProductId,
-        updates,
+      imageUrl$.pipe(
+        switchMap((imageUrl) =>
+          this.adminService.updateProduct(
+            this.businessId(),
+            this.editingProductId,
+            { ...updates, image_url: imageUrl },
+          ),
+        ),
       ),
       (updated) => {
         this.replaceProduct(updated);
         this.showEditModal = false;
       },
     );
+  }
+
+  selectDishPhoto(event: Event, form: "new" | "edit"): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    if (!file) return;
+    if (!("image/jpeg,image/png,image/webp".split(",").includes(file.type)) || file.size > 20 * 1024 * 1024) {
+      this.actionError.set("Elige una imagen JPG, PNG o WebP de máximo 20 MB; se comprimirá antes de subirla.");
+      input.value = "";
+      if (form === "new") this.newProductImageFile = null;
+      else this.editProductImageFile = null;
+      return;
+    }
+    this.actionError.set("");
+    if (form === "new") this.newProductImageFile = file;
+    else this.editProductImageFile = file;
   }
 
   saveSettings(): void {
@@ -383,17 +574,45 @@ export class AdminComponent implements OnInit {
       );
       return;
     }
+    const logoUrl$ = this.editLogoFile
+      ? this.supabaseService.uploadBusinessLogo(this.businessId(), this.editLogoFile)
+      : of(payload.logo_url);
     this.save(
-      this.adminService.updateBusinessSettings(this.businessId(), payload),
+      logoUrl$.pipe(
+        switchMap((logoUrl) =>
+          this.adminService.updateBusinessSettings(this.businessId(), {
+            ...payload,
+            logo_url: logoUrl,
+          }),
+        ),
+      ),
       (updated) => {
         this.restaurant.set(updated);
         this.populateSettings(updated);
+        this.editLogoFile = null;
         this.businessSlug.set(updated.slug);
         const path = ["/admin/businesses", updated.slug];
         if (this.activeTab() !== "overview") path.push(this.activeTab());
         void this.router.navigate(path, { replaceUrl: true });
       },
     );
+  }
+
+  selectBusinessLogo(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    if (!file) return;
+    if (
+      !("image/jpeg,image/png,image/webp".split(",").includes(file.type)) ||
+      file.size > 20 * 1024 * 1024
+    ) {
+      this.actionError.set("Elige un logo JPG, PNG o WebP de máximo 20 MB.");
+      this.editLogoFile = null;
+      input.value = "";
+      return;
+    }
+    this.actionError.set("");
+    this.editLogoFile = file;
   }
 
   onImageError(event: Event): void {

@@ -10,7 +10,7 @@ import {
   computed,
 } from "@angular/core";
 import { FormsModule } from "@angular/forms";
-import { RouterModule, Router } from "@angular/router";
+import { ActivatedRoute, RouterModule, Router } from "@angular/router";
 import { SupabaseService } from "../../services/supabase.service";
 import { AuthService } from "../../services/auth.service";
 
@@ -24,6 +24,7 @@ import { AuthService } from "../../services/auth.service";
 })
 export class VerifyOtpComponent implements AfterViewInit {
   private readonly supabase = inject(SupabaseService);
+  private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly auth = inject(AuthService);
 
@@ -31,7 +32,11 @@ export class VerifyOtpComponent implements AfterViewInit {
     ElementRef<HTMLInputElement>
   >;
 
-  readonly email = signal(this.supabase.getPendingRecoveryEmail() ?? "");
+  readonly email = signal(
+    this.route.snapshot.queryParamMap.get("email") ??
+      this.supabase.getPendingRecoveryEmail() ??
+      "",
+  );
   readonly digits = signal<string[]>(["", "", "", "", "", ""]);
   readonly loading = signal(false);
   readonly resending = signal(false);

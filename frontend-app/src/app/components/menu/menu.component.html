@@ -7,6 +7,13 @@
     </div>
   }
 
+  @if (!menuService.loading() && menuService.error()) {
+    <div class="loading-state" role="alert">
+      <p>{{ menuService.error() }}</p>
+      <button type="button" (click)="retryMenuLoad()">Reintentar</button>
+    </div>
+  }
+
   <!-- Content -->
   @if (!menuService.loading() && menuService.menuData()) {
     <div class="menu-content">

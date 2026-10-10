@@ -143,8 +143,9 @@ export class CartService {
   /**
    * Genera el payload para enviar a FastAPI
    */
-  getCheckoutPayload(restaurantSlug: string, checkout: CheckoutDetails) {
+  getCheckoutPayload(restaurantSlug: string, checkout: CheckoutDetails, idempotencyKey: string) {
     return {
+      idempotency_key: idempotencyKey,
       restaurant_slug: restaurantSlug,
       service_type: checkout.serviceType,
       table_number: checkout.tableNumber || null,
@@ -155,14 +156,10 @@ export class CartService {
       payment_method: checkout.paymentMethod,
       items: this.items().map((item) => ({
         product_id: item.product.id,
-        product_name: item.product.name,
-        price: item.product.price,
         quantity: item.quantity,
         notes: item.notes || null,
         selected_modifiers: (item.selected_modifiers || []).map((mod) => ({
           modifier_option_id: mod.modifier_option_id,
-          name: mod.name,
-          price_extra: mod.price_extra,
         })),
       })),
     };

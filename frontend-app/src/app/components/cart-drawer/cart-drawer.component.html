@@ -178,11 +178,16 @@
       }
     </div>
     <!-- Footer -->
+    @if (submitError()) { <p role="alert" class="notice">{{ submitError() }}</p> }
+    @if (whatsappUrl()) {
+      <p role="status">Pedido registrado. Si WhatsApp no se abrió, continúa aquí:</p>
+      <a class="whatsapp-btn" [href]="whatsappUrl()" target="_blank" rel="noopener">Abrir WhatsApp</a>
+    }
     @if (cartService.items().length > 0) {
     <div class="drawer-footer">
-      <button class="whatsapp-btn" [disabled]="!isFormValid()" (click)="sendOrderViaWhatsApp()">
+      <button class="whatsapp-btn" [disabled]="!isFormValid() || submitting()" (click)="sendOrderViaWhatsApp()">
         <span class="wa-icon">💬</span>
-        <span>Enviar Pedido por WhatsApp</span>
+        <span>{{ submitting() ? "Registrando pedido…" : "Enviar Pedido por WhatsApp" }}</span>
       </button>
     </div>
     }

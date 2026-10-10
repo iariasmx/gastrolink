@@ -124,11 +124,27 @@ export class AuthService {
     return this.sessionRequest;
   }
 
+  /** Fuerza una lectura nueva de perfil y negocios tras cambios administrativos. */
+  refreshCurrentUser(): Observable<boolean> {
+    this.lastSessionLoadedAt = 0;
+    this.lastSessionToken = undefined;
+    return this.loadCurrentUser();
+  }
+
   getCurrentUser(): CurrentUser | null {
     return this.currentUser();
   }
   getUserBusinesses(): UserBusiness[] {
     return this.businesses();
+  }
+  replaceBusinesses(businesses: UserBusiness[]): void {
+    this.businesses.set(businesses);
+    if (
+      !businesses.some((business) => business.id === this.selectedBusinessId())
+    ) {
+      this.selectedBusinessId.set(null);
+      localStorage.removeItem("gastrolink_business_id");
+    }
   }
   getBusinessByIdOrSlug(reference: string): UserBusiness | null {
     return (

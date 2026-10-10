@@ -192,7 +192,7 @@ select (case when not exists (select 1 from pg_trigger where tgname = 'set_updat
 from unnest('{restaurants,users,categories,products,modifier_groups,modifier_options}'::text[]) t;
 ```
 
-El script completo de migración (incluyendo el trigger para crear fila en `users` cuando se crea el `auth.users`, y RLS) está en los playbooks del proyecto o se puede generar desde `agente.md`.
+Las migraciones versionadas están en `backend-api/migrations/`. Aplica `001_multi_business.sql` para el esquema multi-negocio, `002_business_menu_templates.sql` para las plantillas (ya ejecutada), `003_orders.sql` para activar el registro de pedidos, `004_dish_photos_storage.sql` para las fotos en Supabase Storage y `005_order_address_references.sql` para completar instalaciones previas de `orders` con las columnas del checkout y compatibilidad con los campos legados `delivery_method` y `raw_cart_json`.
 
 ---
 
@@ -242,13 +242,7 @@ El script completo de migración (incluyendo el trigger para crear fila en `user
    npm install
    # @supabase/supabase-js ya es dep; si lo quisieras reinstalar: npm i @supabase/supabase-js --save
    ```
-3. **Configura credenciales**: abre `src/app/services/supabase.service.ts` y escribe **las MISMAS** `SUPABASE_URL` y anon key que usaste en backend:
-   ```typescript
-   // frontend-app/src/app/services/supabase.service.ts
-   export const SUPABASE_URL = "https://<TU-PROYECTO-REF>.supabase.co";
-   export const SUPABASE_ANON_KEY = "sb_publishable_xxxxxxxxxxxxxxxxxxxxxxxxxxx"; // misma que SUPABASE_KEY en .env backend
-   ```
-   *(Pendiente migrar a `environment.ts`/`fileReplacements` cuando termine la configuración inicial del proyecto).*
+3. **Configura credenciales** en `src/environments/environment.ts` y `src/environments/environment.development.ts`. Usa la URL del proyecto y la publishable key (o anon key heredada) correspondiente; ambas son públicas para el navegador y deben coincidir con backend `SUPABASE_URL`/`SUPABASE_KEY`. Nunca coloques `SUPABASE_SECRET_KEY` en Angular.
 4. Inicia el dev server:
    ```bash
    ng serve --host 127.0.0.1 --port 4200
@@ -347,7 +341,7 @@ Ahora:
 El carrito de compras calcula cantidades, subtotales y adiciones condicionales (como el costo de envío configurado por el restaurante) de manera reactiva y síncrona en el cliente mediante la API nativa de **Signals**, evitando sobrecargar la memoria con suscripciones manuales de RxJS.
 
 ### Canalización de Pedidos por WhatsApp (Costo de API \$0)
-El cierre de la venta y la logística de entrega se delegan por completo al operador del restaurante. El sistema concatena el carrito de compras junto con los detalles de entrega recopilados dinámicamente en el formulario de Checkout (Dirección, referencias de domicilio y método de pago) y redirige al comensal mediante la API abierta de WhatsApp Web/App utilizando codificación de caracteres estándar (`encodeURIComponent`), garantizando el envío seguro de la orden sin costos por mensaje de broker de mensajería externa.
+El cierre de venta y la logística de entrega se delegan al restaurante. Antes de abrir WhatsApp, el backend verifica disponibilidad, precios y modificadores desde el menú, guarda un snapshot del pedido y calcula los importes; el enlace incluye el folio y esos totales. El panel muestra los pedidos por negocio y permite avanzar su estado. La mensajería sigue usando el enlace gratuito de WhatsApp.
 
 ### Selección automática / Switcher de Negocio en Admin
 - superadmin entra en `/admin` → redirige al listado `/admin/businesses`.
@@ -401,13 +395,17 @@ La interfaz del menú público para comensales fue diseñada aplicando principio
 - [ ] Helpers AdminService dedicados para categorías (create/update/delete reutilizables).
 - [ ] Modelos TS de usuario / user_businesses formales en `models/auth.model.ts`.
 - [ ] Completar campos `sort_order`, `is_active` a nivel de UI admin (drag-and-drop / toggles).
-- [ ] Reemplazar credenciales inline `supabase.service.ts` por `environment.{dev,prod}.ts` + fileReplacements.
+- [x] Reemplazar credenciales inline `supabase.service.ts` por `src/environments/environment.ts` y `environment.development.ts` + fileReplacements.
 - [ ] Migrar credenciales heredadas de service role a formato nuevo `sb_secret_...` (a más tardar finales 2026).
 
 ### 🔜 Fase 5 (Opcionales / Futuro)
-- [ ] Plantillas al crear negocio: empty / taquería / hamburguesería / cafetería / pizzería / restaurante_general (categorías base seed).
-- [ ] Módulo de asignación avanzada de usuarios (invitar por email directo sin que tenga que hacer password reset).
-- [ ] Módulo de pedidos: guardar pedidos en BD y panel "Pedidos en curso" por negocio.
+- [x] Plantillas al crear negocio con categorías iniciales para restaurantes chicos y medianos de México: menú vacío, taquería, fonda/comida corrida, antojitos, hamburguesería, cafetería, pizzería, marisquería y restaurante familiar. Se aplican con `backend-api/migrations/002_business_menu_templates.sql`; no agregan platillos ni precios.
+- [x] Asignación avanzada de usuarios: búsqueda, cambio de rol y envío de invitación por email para cuentas nuevas.
+- [ ] Para que Supabase envíe invitaciones por correo en producción, configura un proveedor SMTP propio y los redirect URLs permitidos en Auth settings.
+- [x] Módulo de pedidos: guardar pedidos con precios verificados por backend, clave idempotente única y estados desde la bandeja del negocio. Requiere aplicar `backend-api/migrations/003_orders.sql`.
+- [x] Fotos propias de platillos: carga desde alta/edición, optimización en navegador a WebP (máximo 1600 px y 5 MB), almacenamiento por negocio, acceso público de lectura para el menú y escritura restringida a dueños, administradores del negocio y superadmin. Acepta originales JPG, PNG o WebP de hasta 20 MB. Requiere aplicar `backend-api/migrations/004_dish_photos_storage.sql`.
+- [x] Logo de negocio: carga de archivo en alta/edición, optimizado en navegador a WebP (máximo 512 px y 1 MB), guardado en Supabase Storage con la misma política de acceso por negocio. Requiere `004_dish_photos_storage.sql`.
+- [x] Credenciales de Supabase frontend movidas a environments de desarrollo y producción; la publishable key sigue siendo pública y el secret solo queda en backend.
 - [ ] Multi-idioma (ES/EN) para el menú público.
 
 ---
@@ -450,12 +448,3 @@ Soporte y gestión de incidencias: reporta bugs con captura del `Network → Req
 <img width="1481" height="931" alt="image" src="https://github.com/user-attachments/assets/8c5a1516-3851-4583-b058-645c3c8b46fb" />
 
 <img width="1454" height="942" alt="image" src="https://github.com/user-attachments/assets/48524d78-fa48-4541-b03a-d028d77437db" />
-
-
-
-
-
-
-
-
-

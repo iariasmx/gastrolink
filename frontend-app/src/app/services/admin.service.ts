@@ -10,12 +10,27 @@ import {
   FullMenuResponse,
 } from "../models/restaurant.model";
 import { API_URL } from "./api.config";
+import { BusinessUserAssignment, BusinessRole } from "../models/auth.model";
 
 export type BusinessPayload = Omit<
   Restaurant,
   "id" | "created_at" | "updated_at"
 >;
-export type CreateBusinessPayload = BusinessPayload & { owner_email: string };
+export type BusinessTemplate =
+  | "empty"
+  | "taqueria"
+  | "fonda"
+  | "antojitos"
+  | "hamburgueseria"
+  | "cafeteria"
+  | "pizzeria"
+  | "marisqueria"
+  | "restaurante_familiar";
+export type CreateBusinessPayload = BusinessPayload & {
+  owner_email: string;
+  template_type: BusinessTemplate;
+};
+export type BusinessUserRole = BusinessRole;
 
 @Injectable({ providedIn: "root" })
 export class AdminService {
@@ -46,6 +61,45 @@ export class AdminService {
   deleteBusiness(id: string): Observable<unknown> {
     return this.http.delete(
       `${API_URL}/admin/businesses/${encodeURIComponent(id)}`,
+    );
+  }
+  getBusinessUsers(id: string): Observable<BusinessUserAssignment[]> {
+    return this.http.get<BusinessUserAssignment[]>(
+      `${API_URL}/admin/businesses/${encodeURIComponent(id)}/users`,
+    );
+  }
+  assignBusinessUser(
+    id: string,
+    email: string,
+    role: BusinessUserRole,
+  ): Observable<BusinessUserAssignment> {
+    return this.http.post<BusinessUserAssignment>(
+      `${API_URL}/admin/businesses/${encodeURIComponent(id)}/users`,
+      { email, role },
+    );
+  }
+  removeBusinessUser(id: string, userId: string): Observable<unknown> {
+    return this.http.delete(
+      `${API_URL}/admin/businesses/${encodeURIComponent(id)}/users/${encodeURIComponent(userId)}`,
+    );
+  }
+  updateBusinessUserRole(
+    id: string,
+    userId: string,
+    role: BusinessUserRole,
+  ): Observable<BusinessUserAssignment> {
+    return this.http.put<BusinessUserAssignment>(
+      `${API_URL}/admin/businesses/${encodeURIComponent(id)}/users/${encodeURIComponent(userId)}`,
+      { role },
+    );
+  }
+  requestBusinessUserPasswordReset(
+    id: string,
+    userId: string,
+  ): Observable<{ email: string }> {
+    return this.http.post<{ email: string }>(
+      `${API_URL}/admin/businesses/${encodeURIComponent(id)}/users/${encodeURIComponent(userId)}/password-reset`,
+      {},
     );
   }
   getBusinessMenu(id: string): Observable<FullMenuResponse> {
@@ -88,11 +142,27 @@ export class AdminService {
   }
   createCategory(
     businessId: string,
-    payload: Pick<Category, "name" | "sort_order">,
+    payload: Pick<Category, "name" | "sort_order"> &
+      Partial<Pick<Category, "is_active">>,
   ): Observable<Category> {
     return this.http.post<Category>(
       `${this.businessUrl(businessId)}/categories`,
       payload,
+    );
+  }
+  updateCategory(
+    businessId: string,
+    categoryId: string,
+    payload: Partial<Pick<Category, "name" | "sort_order" | "is_active">>,
+  ): Observable<Category> {
+    return this.http.put<Category>(
+      `${this.businessUrl(businessId)}/categories/${encodeURIComponent(categoryId)}`,
+      payload,
+    );
+  }
+  deleteCategory(businessId: string, categoryId: string): Observable<unknown> {
+    return this.http.delete(
+      `${this.businessUrl(businessId)}/categories/${encodeURIComponent(categoryId)}`,
     );
   }
   saveModifierGroup(

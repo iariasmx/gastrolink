@@ -17,6 +17,10 @@ router = APIRouter(prefix="/api")
 bearer = HTTPBearer(auto_error=False)
 Role = Literal['superadmin', 'business_owner', 'business_admin', 'staff']
 BusinessRole = Literal['business_owner', 'business_admin', 'staff']
+BusinessTemplate = Literal[
+    'empty', 'taqueria', 'fonda', 'antojitos', 'hamburgueseria',
+    'cafeteria', 'pizzeria', 'marisqueria', 'restaurante_familiar'
+]
 
 
 class StrictGroupCreate(GroupCreate):
@@ -104,6 +108,7 @@ def permit(user, business_id, action='menu'):
     allowed = {'read': {'business_owner', 'business_admin', 'staff'},
                'menu': {'business_owner', 'business_admin'},
                'settings': {'business_owner', 'business_admin'},
+               'orders': {'business_owner', 'business_admin', 'staff'},
                'users': {'business_owner'}}
     if not links or links[0]['role'] not in allowed[action]:
         raise HTTPException(403, 'Sin permiso sobre este negocio')
@@ -129,7 +134,7 @@ class SessionExchange(BaseModel):
     access_token: str = Field(min_length=1)
 
 
-@router.post('/auth/login')
+@router.post('/auth/login', tags=['Autenticación'], summary='Iniciar sesión')
 def login(payload: Login):
     # Separate client: sign-in must not change the database client's privileged credentials.
     client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
@@ -148,7 +153,7 @@ def login(payload: Login):
             'user_email': user['email'], 'user': user, 'businesses': businesses(user)}
 
 
-@router.post('/auth/session')
+@router.post('/auth/session', tags=['Autenticación'], summary='Vincular una sesión de Supabase')
 def attach_session(payload: SessionExchange):
     logger.info("POST /auth/session token_prefix=%s", payload.access_token[:20] if payload.access_token else None)
     user = current_user(HTTPAuthorizationCredentials(scheme='Bearer', credentials=payload.access_token))
@@ -156,12 +161,12 @@ def attach_session(payload: SessionExchange):
             'user_email': user['email'], 'user': user, 'businesses': businesses(user)}
 
 
-@router.get('/auth/me')
+@router.get('/auth/me', tags=['Autenticación'], summary='Consultar usuario y negocios de la sesión')
 def me(user=Depends(current_user)):
     return {'user': user, 'businesses': businesses(user)}
 
 
-@router.get('/me/businesses')
+@router.get('/me/businesses', tags=['Autenticación'], summary='Listar negocios disponibles para el usuario')
 def mine(user=Depends(current_user)):
     return businesses(user)
 
@@ -182,6 +187,7 @@ class BusinessData(BaseModel):
 
 class BusinessCreate(BusinessData):
     owner_email: str = Field(min_length=3, max_length=254, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+    template_type: BusinessTemplate = 'empty'
 
 
 BusinessUpdate = create_model('BusinessUpdate', __config__=ConfigDict(extra='forbid'),
@@ -239,7 +245,7 @@ def _invalidate_caches_for_write(table, record_id=None, scope=None):
     return None
 
 
-@router.get('/admin/businesses')
+@router.get('/admin/businesses', tags=['Administración de negocios'], summary='Listar todos los negocios')
 def list_businesses(user=Depends(superadmin)):
     return rows('restaurants')
 
@@ -260,22 +266,27 @@ def owner_id(email):
     return str(created.user.id)
 
 
-@router.post('/admin/businesses', status_code=201)
+@router.post('/admin/businesses', status_code=201, tags=['Administración de negocios'], summary='Crear negocio y asignar dueño')
 def create_business(payload: BusinessCreate, user=Depends(superadmin)):
     if rows('restaurants', slug=payload.slug):
         raise HTTPException(409, 'El slug ya existe')
     owner = owner_id(payload.owner_email)
     try:
-        return supabase.rpc('create_business_with_owner', {
+        created = supabase.rpc('create_business_with_owner', {
             'business_data': payload.model_dump(exclude={'owner_email'}), 'owner_id': owner
         }).execute().data
+        invalidate_rows_cache('restaurants', 'user_businesses', 'categories')
+        clear_menu_cache()
+        return created
     except Exception as exc:
+        invalidate_rows_cache('restaurants', 'user_businesses', 'categories')
+        clear_menu_cache()
         if getattr(exc, 'code', '') == '23505':
             raise HTTPException(409, 'El slug ya existe')
         raise HTTPException(500, 'No se pudo crear el negocio')
 
 
-@router.get('/admin/businesses/{business_id}')
+@router.get('/admin/businesses/{business_id}', tags=['Administración de negocios'], summary='Consultar negocio')
 def get_business(business_id: UUID, user=Depends(superadmin)):
     return one('restaurants', id=business_id)
 
@@ -288,12 +299,12 @@ def validated_business_update(payload):
     return data
 
 
-@router.put('/admin/businesses/{business_id}')
+@router.put('/admin/businesses/{business_id}', tags=['Administración de negocios'], summary='Actualizar negocio')
 def update_business(business_id: UUID, payload: BusinessUpdate, user=Depends(superadmin)):
     return update_settings_record(business_id, payload)
 
 
-@router.delete('/admin/businesses/{business_id}')
+@router.delete('/admin/businesses/{business_id}', tags=['Administración de negocios'], summary='Eliminar negocio')
 def delete_business(business_id: UUID, user=Depends(superadmin)):
     return remove('restaurants', business_id)
 
@@ -304,22 +315,58 @@ class Assignment(BaseModel):
     role: BusinessRole
 
 
-@router.get('/admin/businesses/{business_id}/users')
+class AssignmentRole(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    role: BusinessRole
+
+
+@router.get('/admin/businesses/{business_id}/users', tags=['Administración de negocios'], summary='Listar usuarios asignados al negocio')
 def list_users(business_id: UUID, user=Depends(current_user)):
     permit(user, business_id, 'users')
     one('restaurants', id=business_id)
-    return rows('user_businesses', business_id=business_id)
+    assignments = rows('user_businesses', business_id=business_id)
+    profiles = {str(profile['id']): profile for profile in rows('users')}
+    return [{**assignment, 'email': profiles.get(str(assignment['user_id']), {}).get('email')}
+            for assignment in assignments]
 
 
-@router.post('/admin/businesses/{business_id}/users', status_code=201)
+@router.post('/admin/businesses/{business_id}/users', status_code=201, tags=['Administración de negocios'], summary='Asignar usuario al negocio')
 def assign_user(business_id: UUID, payload: Assignment, user=Depends(current_user)):
     permit(user, business_id, 'users')
     one('restaurants', id=business_id)
+    existing = rows('users', email=payload.email.strip().lower())
+    if existing:
+        assigned_user_id = existing[0]['id']
+    else:
+        try:
+            invitation = supabase.auth.admin.invite_user_by_email(payload.email.strip().lower())
+            assigned_user_id = str(invitation.user.id)
+        except Exception:
+            raise HTTPException(502, 'No se pudo enviar la invitación. Comprueba el correo y la configuración SMTP de Supabase.')
     return write('user_businesses', {'business_id': str(business_id),
-                 'user_id': owner_id(payload.email), 'role': payload.role})
+                 'user_id': assigned_user_id, 'role': payload.role})
 
 
-@router.delete('/admin/businesses/{business_id}/users/{user_id}')
+@router.put('/admin/businesses/{business_id}/users/{user_id}', tags=['Administración de negocios'], summary='Cambiar el rol de un usuario asignado')
+def update_assignment(business_id: UUID, user_id: UUID, payload: AssignmentRole, user=Depends(current_user)):
+    permit(user, business_id, 'users')
+    link = one('user_businesses', business_id=business_id, user_id=user_id)
+    return write('user_businesses', {'role': payload.role}, link['id'], business_id=business_id)
+
+
+@router.post('/admin/businesses/{business_id}/users/{user_id}/password-reset', tags=['Administración de negocios'], summary='Solicitar recuperación de contraseña de un usuario')
+def password_reset_target(business_id: UUID, user_id: UUID, user=Depends(current_user)):
+    permit(user, business_id, 'users')
+    one('user_businesses', business_id=business_id, user_id=user_id)
+    profile = one('users', id=user_id)
+    if not profile.get('is_active') or not profile.get('email'):
+        raise HTTPException(404, 'Usuario inactivo o sin correo asociado')
+    # El correo se usa en el cliente para solicitar el OTP a Supabase Auth.
+    # Nunca se devuelve ni se modifica la contraseña desde el backend.
+    return {'email': profile['email']}
+
+
+@router.delete('/admin/businesses/{business_id}/users/{user_id}', tags=['Administración de negocios'], summary='Retirar usuario del negocio')
 def unassign_user(business_id: UUID, user_id: UUID, user=Depends(current_user)):
     permit(user, business_id, 'users')
     link = one('user_businesses', business_id=business_id, user_id=user_id)
@@ -377,7 +424,7 @@ def _build_menu(business_id, include_all):
     return {'restaurant': restaurant, 'categories': categories}
 
 
-@router.get('/restaurants/by-slug/{slug}')
+@router.get('/restaurants/by-slug/{slug}', tags=['Menú público'], summary='Consultar menú público por slug')
 def public_menu(slug: str, include_all: bool = Query(False), credentials=Depends(bearer)):
     restaurant = one('restaurants', slug=slug)
     if include_all:
@@ -385,7 +432,7 @@ def public_menu(slug: str, include_all: bool = Query(False), credentials=Depends
     return menu(restaurant['id'], include_all)
 
 
-@router.get('/businesses/{business_id}/menu')
+@router.get('/businesses/{business_id}/menu', tags=['Menú y configuración'], summary='Consultar menú administrativo del negocio')
 def business_menu(business_id: UUID, include_all: bool = Query(True), user=Depends(current_user)):
     permit(user, business_id, 'menu')
     return menu(business_id, include_all)
@@ -403,7 +450,7 @@ def update_settings_record(business_id, payload):
     return write('restaurants', {k: merged.model_dump()[k] for k in updates}, business_id)
 
 
-@router.put('/businesses/{business_id}/settings')
+@router.put('/businesses/{business_id}/settings', tags=['Menú y configuración'], summary='Actualizar configuración del negocio')
 def settings_update(business_id: UUID, payload: BusinessUpdate, user=Depends(current_user)):
     permit(user, business_id, 'settings')
     return update_settings_record(business_id, payload)
@@ -478,9 +525,24 @@ def register_resource(path, table, create_schema, update_schema, parent=None):
         return remove(table, resource_id, **scope)
 
     base = '/businesses/{business_id}/' + path
-    router.add_api_route(base, create, methods=['POST'], status_code=201, name='create_' + table)
-    router.add_api_route(base + '/{resource_id}', update, methods=['PUT'], name='update_' + table)
-    router.add_api_route(base + '/{resource_id}', delete, methods=['DELETE'], name='delete_' + table)
+    tag = {
+        'categories': 'Categorías',
+        'products': 'Productos',
+        'modifier_groups': 'Grupos de modificadores',
+        'modifier_options': 'Opciones de modificadores',
+    }[table]
+    label = {
+        'categories': 'categoría',
+        'products': 'producto',
+        'modifier_groups': 'grupo de modificadores',
+        'modifier_options': 'opción de modificador',
+    }[table]
+    router.add_api_route(base, create, methods=['POST'], status_code=201, name='create_' + table,
+                         tags=[tag], summary='Crear ' + label)
+    router.add_api_route(base + '/{resource_id}', update, methods=['PUT'], name='update_' + table,
+                         tags=[tag], summary='Actualizar ' + label)
+    router.add_api_route(base + '/{resource_id}', delete, methods=['DELETE'], name='delete_' + table,
+                         tags=[tag], summary='Eliminar ' + label)
 
 
 register_resource('categories', 'categories', CategoryData, CategoryData)
